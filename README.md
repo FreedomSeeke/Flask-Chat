@@ -64,9 +64,10 @@ flask、flask-sqlalchemy、flask-login、flask-socketio、pymysql、werkzeug、e
 1. 创建数据库：手动登录MySQL，执行以下SQL创建项目数据库（编码设为utf8mb4，支持表情符号）：
         `CREATE DATABASE IF NOT EXISTS wechat_chat DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;`
         项目启动后会自动创建用户表（users）和消息表（messages），无需手动创建表结构。
+   
 也可通过手动导入sql文件：[flask数据.sql](https://raw.githubusercontent.com/FreedomSeeke/Flask-Chat/main/flask数据库.sql)   
 
-2. 修改数据库连接配置（可选）：若MySQL root密码、地址或端口与默认不同，打开项目根目录的 `app.py`，修改以下配置项：
+3. 修改数据库连接配置（可选）：若MySQL root密码、地址或端口与默认不同，打开项目根目录的 `app.py`，修改以下配置项：
         `app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:你的密码@localhost:3306/wechat_chat?charset=utf8mb4'`
 
 # 四、核心功能说明
@@ -250,6 +251,3 @@ Press CTRL+C to quit
 - 消息通知：添加浏览器桌面通知，用户离线时收到新消息提醒。
 
 欢迎大家基于本项目进行二次开发和改进，共同完善功能！
-
-
-> （注：文档部分内容可能由 AI 生成）
