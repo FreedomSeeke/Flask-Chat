@@ -56,9 +56,9 @@
 
 ## 3.3 数据库配置
 
-1. 创建数据库：打开MySQL客户端（如Navicat或命令行），执行以下SQL语句创建项目所需数据库：
-        `CREATE DATABASE wechat_chat DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
-      
+# 数据库创建
+请执行以下SQL文件初始化数据库：[flask数据库.sql](https://raw.githubusercontent.com/FreedomSeeke/Flask-Chat/main/flask数据库.sql)
+
 
 2. 修改数据库连接配置（可选）：若你的MySQL root密码不是123456，或数据库地址/端口有修改，需打开 `app.py`，修改以下配置项：
         `app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:你的密码@localhost:3306/wechat_chat?charset=utf8mb4'`
