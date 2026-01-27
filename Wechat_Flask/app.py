@@ -51,6 +51,7 @@ INIT_ADMIN_SECRET = '2381b3335f76ca56db8beaa127181ef37accbdb7223e559e46a47c58d54
 
 # -------------- 会话常量 --------------
 SESSION_ID_KEY = 'user_session_id'  # session中存储会话ID的键名
+SESSION_TIMEOUT = 3600  # 会话超时时间（秒），默认1小时
 
 # -------------- 密码校验常量 --------------
 PASSWORD_PATTERN = r'^(?=.*[a-zA-Z])(?=.*\d).{6,}$'  # 密码规则：至少6位，包含字母和数字
@@ -75,6 +76,7 @@ class User(UserMixin, db.Model):
     # 登录信息
     login_device = db.Column(db.String(100), nullable=True)  # 登录设备
     last_login_time = db.Column(db.DateTime, nullable=True)  # 最后登录时间
+    session_created_at = db.Column(db.DateTime, nullable=True)  # 会话创建时间，用于会话超时
     # -------------- 新增字段：当前有效会话ID --------------
     current_session_id = db.Column(db.String(100), nullable=True)  # 存储当前唯一有效登录的会话ID
 
@@ -87,10 +89,35 @@ class Message(db.Model):
     content = db.Column(db.Text, nullable=True)
     file_type = db.Column(db.String(20), nullable=True)
     file_path = db.Column(db.String(255), nullable=True)
-    timestamp = db.Column(db.DateTime, default=datetime.now)
+    timestamp = db.Column(db.DateTime, default=datetime.now())
 
     sender = db.relationship('User', foreign_keys=[sender_id], backref='sent_messages')
     receiver = db.relationship('User', foreign_keys=[receiver_id], backref='received_messages')
+
+
+class FriendRequest(db.Model):
+    __tablename__ = 'friend_requests'
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    receiver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending, accepted, rejected
+    created_at = db.Column(db.DateTime, default=datetime.now())
+    
+    # 关系定义
+    sender = db.relationship('User', foreign_keys=[sender_id], backref='sent_requests')
+    receiver = db.relationship('User', foreign_keys=[receiver_id], backref='received_requests')
+
+
+class Friend(db.Model):
+    __tablename__ = 'friends'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    friend_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now())
+    
+    # 关系定义
+    user = db.relationship('User', foreign_keys=[user_id], backref='friendships')
+    friend = db.relationship('User', foreign_keys=[friend_id], backref='friend_of')
 
 
 # -------------- 工具函数 --------------
@@ -149,6 +176,61 @@ def is_valid_password(password):
     return re.match(PASSWORD_PATTERN, password) is not None
 
 
+def are_friends(user1_id, user2_id):
+    """
+    检查两个用户是否是好友
+    :param user1_id: 用户1的ID
+    :param user2_id: 用户2的ID
+    :return: True-是好友，False-不是好友
+    """
+    # 检查双向好友关系
+    friend1 = Friend.query.filter_by(user_id=user1_id, friend_id=user2_id).first()
+    friend2 = Friend.query.filter_by(user_id=user2_id, friend_id=user1_id).first()
+    return friend1 is not None and friend2 is not None
+
+
+def get_friends(user_id):
+    """
+    获取用户的好友列表
+    :param user_id: 用户ID
+    :return: 好友列表
+    """
+    friends = []
+    # 查询用户作为发起方的好友关系
+    friend_relationships = Friend.query.filter_by(user_id=user_id).all()
+    for relationship in friend_relationships:
+        friend = User.query.get(relationship.friend_id)
+        if friend and not friend.is_banned:
+            friends.append(friend)
+    return friends
+
+
+def has_pending_request(sender_id, receiver_id):
+    """
+    检查是否有未处理的好友请求
+    :param sender_id: 发送者ID
+    :param receiver_id: 接收者ID
+    :return: True-有未处理请求，False-没有
+    """
+    return FriendRequest.query.filter_by(
+        sender_id=sender_id,
+        receiver_id=receiver_id,
+        status='pending'
+    ).first() is not None
+
+
+def get_received_requests(user_id):
+    """
+    获取用户收到的好友请求
+    :param user_id: 用户ID
+    :return: 好友请求列表
+    """
+    return FriendRequest.query.filter_by(
+        receiver_id=user_id,
+        status='pending'
+    ).all()
+
+
 # -------------- 会话验证工具函数 --------------
 def is_valid_session(user):
     """
@@ -161,7 +243,16 @@ def is_valid_session(user):
     # 获取当前session中的会话ID
     current_session_id = session.get(SESSION_ID_KEY)
     # 验证：用户的current_session_id存在，且与当前session中的会话ID一致
-    return user.current_session_id is not None and current_session_id == user.current_session_id
+    if user.current_session_id is None or current_session_id != user.current_session_id:
+        return False
+    # 新增：检查会话是否超时
+    if user.session_created_at:
+        session_age = (datetime.now() - user.session_created_at).total_seconds()
+        if session_age > SESSION_TIMEOUT:
+            # 会话超时，自动失效
+            invalidate_user_session(user)
+            return False
+    return True
 
 
 def invalidate_user_session(user):
@@ -172,6 +263,7 @@ def invalidate_user_session(user):
     if user:
         user.current_session_id = None
         user.online = False
+        user.session_created_at = None
         db.session.commit()
 
 
@@ -286,13 +378,14 @@ def index():
     if current_user.role == 'admin':
         return redirect(url_for('admin_panel'))
     # 普通用户检查是否禁言/封号（封号已在load_user中拦截）
-    users = User.query.filter(
-        User.id != current_user.id,
-        User.is_banned == False  # 不显示封号用户
-    ).all()
+    # 只显示好友列表
+    friends = get_friends(current_user.id)
+    # 获取收到的好友请求
+    friend_requests = get_received_requests(current_user.id)
     return render_template('index.html',
                            current_user=current_user,
-                           users=users,
+                           friends=friends,
+                           friend_requests=friend_requests,
                            is_muted=current_user.is_muted)
 
 
@@ -411,12 +504,13 @@ def login():
             if check_password_hash(user.password, password):
                 # -------------- 关键修改：登录成功，生成新的会话ID，更新用户的current_session_id --------------
                 new_session_id = generate_session_id()
-                # 更新用户记录：新的会话ID、在线状态、登录设备、最后登录时间
+                # 更新用户记录：新的会话ID、在线状态、登录设备、最后登录时间、会话创建时间
                 user.login_attempts = 0
                 user.verify_code = None
                 user.online = True
                 user.login_device = get_login_device()
                 user.last_login_time = datetime.now()
+                user.session_created_at = datetime.now()  # 设置会话创建时间
                 user.current_session_id = new_session_id  # 覆盖旧的会话ID，使旧会话失效
                 db.session.commit()
 
@@ -442,12 +536,13 @@ def login():
             if check_password_hash(user.password, password):
                 # -------------- 关键修改：登录成功，生成新的会话ID，更新用户的current_session_id --------------
                 new_session_id = generate_session_id()
-                # 更新用户记录：新的会话ID、在线状态、登录设备、最后登录时间
+                # 更新用户记录：新的会话ID、在线状态、登录设备、最后登录时间、会话创建时间
                 user.login_attempts = 0
                 user.verify_code = None
                 user.online = True
                 user.login_device = get_login_device()
                 user.last_login_time = datetime.now()
+                user.session_created_at = datetime.now()  # 设置会话创建时间
                 user.current_session_id = new_session_id  # 覆盖旧的会话ID，使旧会话失效
                 db.session.commit()
 
@@ -520,6 +615,192 @@ def logout():
     return redirect(url_for('login'))
 
 
+@app.route('/friend/request/<int:receiver_id>', methods=['POST'])
+@login_required
+def send_friend_request(receiver_id):
+    """
+    发送好友请求
+    :param receiver_id: 接收者的用户ID
+    :return: JSON响应
+    """
+    # 不能向自己发送请求
+    if receiver_id == current_user.id:
+        return jsonify({'code': 0, 'msg': '不能向自己发送好友请求'})
+    
+    # 检查用户是否存在
+    receiver = User.query.get(receiver_id)
+    if not receiver or receiver.is_banned:
+        return jsonify({'code': 0, 'msg': '用户不存在或已被封号'})
+    
+    # 检查是否已经是好友
+    if are_friends(current_user.id, receiver_id):
+        return jsonify({'code': 0, 'msg': '已经是好友'})
+    
+    # 检查是否有未处理的请求
+    if has_pending_request(current_user.id, receiver_id):
+        return jsonify({'code': 0, 'msg': '好友请求已发送，请等待对方响应'})
+    
+    # 发送好友请求
+    try:
+        request = FriendRequest(
+            sender_id=current_user.id,
+            receiver_id=receiver_id,
+            status='pending'
+        )
+        db.session.add(request)
+        db.session.commit()
+        return jsonify({'code': 1, 'msg': '好友请求已发送，请等待对方响应'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'code': 0, 'msg': '发送好友请求失败'})
+
+
+@app.route('/friend/request/<int:request_id>/<action>', methods=['POST'])
+@login_required
+def handle_friend_request(request_id, action):
+    """
+    处理好友请求
+    :param request_id: 请求ID
+    :param action: 操作类型（accept, reject）
+    :return: JSON响应
+    """
+    # 验证操作类型
+    if action not in ['accept', 'reject']:
+        return jsonify({'code': 0, 'msg': '无效的操作类型'})
+    
+    # 查找请求
+    request = FriendRequest.query.get(request_id)
+    if not request:
+        return jsonify({'code': 0, 'msg': '好友请求不存在'})
+    
+    # 验证请求接收者
+    if request.receiver_id != current_user.id:
+        return jsonify({'code': 0, 'msg': '无权处理此好友请求'})
+    
+    # 验证请求状态
+    if request.status != 'pending':
+        return jsonify({'code': 0, 'msg': '好友请求已处理'})
+    
+    try:
+        if action == 'accept':
+            # 接受请求，创建好友关系
+            request.status = 'accepted'
+            # 创建双向好友关系
+            friendship1 = Friend(user_id=request.sender_id, friend_id=request.receiver_id)
+            friendship2 = Friend(user_id=request.receiver_id, friend_id=request.sender_id)
+            db.session.add(friendship1)
+            db.session.add(friendship2)
+            db.session.commit()
+            return jsonify({'code': 1, 'msg': '已接受好友请求'})
+        else:
+            # 拒绝请求
+            request.status = 'rejected'
+            db.session.commit()
+            return jsonify({'code': 1, 'msg': '已拒绝好友请求'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'code': 0, 'msg': '处理好友请求失败'})
+
+
+@app.route('/friend/remove/<int:friend_id>', methods=['POST'])
+@login_required
+def remove_friend(friend_id):
+    """
+    删除好友
+    :param friend_id: 好友的用户ID
+    :return: JSON响应
+    """
+    # 检查是否是好友
+    if not are_friends(current_user.id, friend_id):
+        return jsonify({'code': 0, 'msg': '不是好友关系'})
+    
+    # 删除好友关系（双向）
+    try:
+        # 删除用户对对方的好友关系
+        Friend.query.filter_by(user_id=current_user.id, friend_id=friend_id).delete()
+        # 删除对方对用户的好友关系
+        Friend.query.filter_by(user_id=friend_id, friend_id=current_user.id).delete()
+        db.session.commit()
+        return jsonify({'code': 1, 'msg': '删除好友成功'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'code': 0, 'msg': '删除好友失败'})
+
+
+@app.route('/session/heartbeat')
+@login_required
+def session_heartbeat():
+    """
+    会话心跳检测，保持会话活跃状态
+    前端定期调用此接口，更新会话创建时间
+    """
+    if is_valid_session(current_user):
+        # 更新会话创建时间，重置超时计时器
+        current_user.session_created_at = datetime.now()
+        db.session.commit()
+        return jsonify({'code': 1, 'msg': '会话保持活跃'})
+    else:
+        return jsonify({'code': 0, 'msg': '会话已失效'})
+
+
+@app.route('/user/status')
+@login_required
+def get_user_status():
+    """
+    获取当前用户的状态信息
+    :return: JSON响应，包含用户的禁言和封号状态
+    """
+    return jsonify({
+        'code': 1,
+        'msg': '获取用户状态成功',
+        'data': {
+            'is_muted': current_user.is_muted,
+            'is_banned': current_user.is_banned
+        }
+    })
+
+
+@app.route('/search_user')
+@login_required
+def search_user():
+    """
+    搜索用户
+    :return: JSON响应，包含匹配的非好友用户列表
+    """
+    keyword = request.args.get('keyword', '').strip()
+    if not keyword:
+        return jsonify({'code': 0, 'msg': '请输入搜索关键词'})
+    
+    # 搜索用户名包含关键词的用户
+    matched_users = User.query.filter(
+        User.username.like(f'%{keyword}%'),
+        User.id != current_user.id,
+        User.is_banned == False
+    ).all()
+    
+    # 只显示非好友用户
+    non_friends = []
+    
+    for user in matched_users:
+        if not are_friends(current_user.id, user.id):
+            # 检查是否有未处理的好友请求
+            has_pending = has_pending_request(current_user.id, user.id)
+            non_friends.append({
+                'id': user.id,
+                'username': user.username,
+                'online': user.online,
+                'has_pending_request': has_pending
+            })
+    
+    return jsonify({
+        'code': 1,
+        'msg': f'找到{len(non_friends)}个用户',
+        'data': {
+            'non_friends': non_friends
+        }
+    })
+
+
 # -------------- 文件上传接口 --------------
 @app.route('/upload_file', methods=['POST'])
 @login_required
@@ -566,6 +847,10 @@ def upload_file():
 @app.route('/get_messages/<int:receiver_id>')
 @login_required
 def get_messages(receiver_id):
+    # 检查是否是好友
+    if not are_friends(current_user.id, receiver_id):
+        return jsonify([])
+    
     # 禁言用户仅能查看消息，无法发送
     messages = Message.query.filter(
         ((Message.sender_id == current_user.id) & (Message.receiver_id == receiver_id)) |
@@ -588,6 +873,10 @@ def get_messages(receiver_id):
 @app.route('/search_messages/<int:receiver_id>', methods=['GET'])
 @login_required
 def search_messages(receiver_id):
+    # 检查是否是好友
+    if not are_friends(current_user.id, receiver_id):
+        return jsonify({'code': 0, 'msg': '只有好友之间才能搜索消息', 'data': []})
+    
     keyword = request.args.get('keyword', '').strip()
     if not keyword:
         return jsonify({'code': 0, 'msg': '请输入搜索关键词', 'data': []})
@@ -614,6 +903,10 @@ def search_messages(receiver_id):
 @app.route('/clear_messages/<int:receiver_id>', methods=['POST'])
 @login_required
 def clear_messages(receiver_id):
+    # 检查是否是好友
+    if not are_friends(current_user.id, receiver_id):
+        return jsonify({'code': 0, 'msg': '只有好友之间才能清空消息'})
+    
     Message.query.filter(
         ((Message.sender_id == current_user.id) & (Message.receiver_id == receiver_id)) |
         ((Message.sender_id == receiver_id) & (Message.receiver_id == current_user.id))
@@ -653,8 +946,19 @@ def handle_send_text_message(data):
         return
 
     receiver_id = data['receiver_id']
+    # 检查是否是好友
+    if not are_friends(current_user.id, receiver_id):
+        emit('message_error', {'msg': '只有好友之间才能发送消息'})
+        return
+
     content = data['content'].strip()
     if not content:
+        return
+
+    # 再次检查用户状态，确保在发送过程中没有被禁言或封号
+    user = User.query.get(current_user.id)
+    if user.is_muted or user.is_banned:
+        emit('message_error', {'msg': '您已被禁言/封号，无法发送消息'})
         return
 
     new_message = Message(
@@ -693,8 +997,19 @@ def handle_send_file_message(data):
         return
 
     receiver_id = data['receiver_id']
+    # 检查是否是好友
+    if not are_friends(current_user.id, receiver_id):
+        emit('message_error', {'msg': '只有好友之间才能发送文件'})
+        return
+
     file_type = data['file_type']
     file_path = data['file_path']
+
+    # 再次检查用户状态，确保在发送过程中没有被禁言或封号
+    user = User.query.get(current_user.id)
+    if user.is_muted or user.is_banned:
+        emit('message_error', {'msg': '您已被禁言/封号，无法发送文件'})
+        return
 
     new_message = Message(
         sender_id=current_user.id,
@@ -722,7 +1037,7 @@ def handle_send_file_message(data):
 @login_required
 def handle_disconnect():
     print(f'用户 {current_user.username} 已断开连接')
-    # 注意：此处仅标记在线状态为False，不清空current_session_id，因为用户可能只是关闭了SocketIO连接，而不是登出
+    # 标记在线状态为False
     current_user.online = False
     db.session.commit()
     leave_room(str(current_user.id))
@@ -730,6 +1045,8 @@ def handle_disconnect():
 
 # -------------- 初始化数据库 --------------
 with app.app_context():
+    # 先删除现有表，再重新创建（解决字段缺失问题）
+    db.drop_all()
     db.create_all()
     # 移除自动创建管理员账号的逻辑
     print("MySQL数据库表初始化完成！")
