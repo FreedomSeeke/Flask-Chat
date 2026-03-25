@@ -24,6 +24,7 @@ Wechat_Flask 是一个基于 Flask 的聊天系统，提供用户管理、消息
 1. 克隆仓库：
 ```bash
 git clone https://github.com/FreedomSeeke/Flask-Chat.git
+```
 
 如有学习需要可找作者拿管理员账户密码
 
