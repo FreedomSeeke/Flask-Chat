@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>基于flask聊天系统 - {{ current_user.username }}</title>
+    <title>CloudTalk - {{ current_user.username }}</title>
     <!-- Favicon图标 -->
-    <link rel="icon" href="{{ url_for('static', filename='images/❤.png') }}" type="image/x-icon">
+    <link rel="icon" href="{{ url_for('static', filename='images/香香的熏.jpg') }}" type="image/x-icon">
     <!-- 引入Font-Awesome图标 -->
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -16,14 +16,17 @@
         }
         body {
             height: 100vh;
-            background: #f5f5f5;
+        
             font-family: "Microsoft YaHei", sans-serif;
             display: flex;
             flex-direction: column;
+			background: url("/static/images/八重神子.jpg") no-repeat center center fixed;
+			background-size: cover;
+			margin: 0;
         }
         /* 顶部导航栏 */
         .top-nav {
-            background: #f7f7f7;
+            background: rgba(247, 247, 247, 0.85);
             padding: 10px 15px;
             border-bottom: 1px solid #e0e0e0;
             display: flex;
@@ -51,9 +54,9 @@
         }
         /* 搜索框 */
         .search-bar {
-            background: #f7f7f7;
+            background: rgba(247, 247, 247, 0.85);
             padding: 10px 15px;
-            margin-top: 50px;
+            margin-top: 45px;
             position: fixed;
             top: 0;
             left: 0;
@@ -82,12 +85,12 @@
         .chat-list {
             flex: 1;
             overflow-y: auto;
-            margin-top: 110px;
+            margin-top: 143px;
             margin-bottom: 60px;
         }
         .chat-item {
             padding: 15px;
-            background: white;
+            background: rgba(255, 255, 255, 0.85);
             border-bottom: 1px solid #f0f0f0;
             display: flex;
             align-items: center;
@@ -153,7 +156,7 @@
         }
         /* 底部导航栏 */
         .bottom-nav {
-            background: white;
+            background: rgba(255, 255, 255, 0.85);
             border-top: 1px solid #e0e0e0;
             display: flex;
             justify-content: space-around;
@@ -287,6 +290,10 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            position: sticky;
+            bottom: 0;
+            background: white;
+            z-index: 100;
         }
         .input-box {
             flex: 1;
@@ -337,7 +344,7 @@
                 padding: 10px;
             }
             .chat-list {
-                margin-top: 100px;
+                margin-top: 138px;
                 margin-bottom: 60px;
             }
             .chat-item {
@@ -371,7 +378,7 @@
 <body>
     <!-- 顶部导航栏 -->
     <div class="top-nav">
-        <h1>Flask聊天网站</h1>
+        <h1>CloudTalk - {{ current_user.username }}</h1>
     </div>
 
     <!-- 搜索框 -->
@@ -475,7 +482,7 @@
             <h1>我</h1>
         </div>
         <div class="profile-content" style="flex: 1; padding: 20px; margin-top: 50px; margin-bottom: 60px;">
-            <div style="background: white; border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
+            <div style="background: rgba(255, 255, 255, 0.7); border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
                 <div style="padding: 20px; display: flex; align-items: center;">
                     <div style="width: 80px; height: 80px; border-radius: 50%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #999; margin-right: 15px; position: relative; overflow: hidden;">
                         {% if current_user.avatar %}
@@ -496,13 +503,13 @@
                     </div>
                 </div>
             </div>
-            <div style="background: white; border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
+            <div style="background: rgba(255, 255, 255, 0.7); border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
                 <div id="change-password-btn" style="display: flex; justify-content: space-between; align-items: center; text-decoration: none; padding: 15px; cursor: pointer;">
                     <div style="font-size: 16px; color: #333;">修改密码</div>
                     <i class="fas fa-chevron-right" style="color: #999;"></i>
                 </div>
             </div>
-            <div style="background: white; border-radius: 10px; overflow: hidden;">
+            <div style="background: rgba(255, 255, 255, 0.7); border-radius: 10px; overflow: hidden;">
                 <a href="/logout" style="display: flex; justify-content: space-between; align-items: center; text-decoration: none; padding: 15px;">
                     <div style="font-size: 16px; color: #ff3b30;">退出登录</div>
                     <i class="fas fa-chevron-right" style="color: #999;"></i>

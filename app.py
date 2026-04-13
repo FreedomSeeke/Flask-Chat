@@ -975,10 +975,10 @@ def login():
                 if user.login_attempts >= 5:
                     user.lock_time = datetime.now()
                     db.session.commit()
-                    return render_template('login.html', error='密码错误，账号已锁定1分钟', show_verify=False)
+                    return render_template('login.html', error='账户或密码错误，账号已锁定1分钟', show_verify=False)
                 user.verify_code = generate_verify_code()
                 db.session.commit()
-                return render_template('login.html', error='密码错误，请重新输入', verify_code=user.verify_code,
+                return render_template('login.html', error='账户或密码错误，请重新输入', verify_code=user.verify_code,
                                        show_verify=True)
         else:
             # 无验证码，直接验证密码
@@ -1011,9 +1011,9 @@ def login():
                 if user.login_attempts >= 3:
                     user.verify_code = generate_verify_code()
                     db.session.commit()
-                    return render_template('login.html', error=f'密码错误（{user.login_attempts}/5），请输入验证码',
+                    return render_template('login.html', error=f'账户或密码错误（{user.login_attempts}/5），请输入验证码',
                                            verify_code=user.verify_code, show_verify=True)
-                return render_template('login.html', error=f'密码错误（{user.login_attempts}/5）', show_verify=False)
+                return render_template('login.html', error=f'账户或密码错误（{user.login_attempts}/5）', show_verify=False)
 
     return render_template('login.html', error='', show_verify=False)
 

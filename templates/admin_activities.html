@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>用户行为日志</title>
-    <link rel="icon" href="{{ url_for('static', filename='images/heart.ico') }}" type="image/x-icon">
+    <title>CloudTalk-用户行为日志</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/香香的熏.ico') }}" type="image/x-icon">
     <style>
         * {
             margin: 0;
@@ -11,10 +11,21 @@
             box-sizing: border-box;
         }
         body {
-            background: #f5f5f5;
-            font-family: "Microsoft YaHei", sans-serif;
-            padding: 20px;
-        }
+    /* 1. 确保 body 至少占满整个屏幕高度 */
+    min-height: 100vh; 
+    
+    /* 2. 这里的 margin: 0 很关键 */
+    margin: 0;
+    
+    /* 3. 背景设置 */
+    background: url("/static/images/八重神子.jpg") no-repeat center center fixed;
+    background-size: cover;
+    
+    /* 4. 其他原有样式 */
+    font-family: "Microsoft YaHei", sans-serif;
+    padding: 20px;
+    box-sizing: border-box; /* 防止 padding 撑开滚动条 */
+}
         .header {
             display: flex;
             justify-content: space-between;
@@ -183,7 +194,7 @@
 </head>
 <body>
     <div class="header">
-        <h1>用户行为日志</h1>
+        <h1 style="color: white;">用户行为日志</h1>
         <div class="nav-links">
             <a href="/admin/panel" class="nav-link">返回管理员面板</a>
             <a href="/logout" class="logout-link">退出登录</a>

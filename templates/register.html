@@ -3,26 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>注册 - 欢迎注册辉哥聊天系统</title>
+    <title>CloudTalk - 注册</title>
+
     <!-- Favicon图标 -->
-    <link rel="icon" href="{{ url_for('static', filename='images/❤.png') }}" type="image/x-icon">
+    <link rel="icon" href="{{ url_for('static', filename='images/香香的熏.jpg') }}" type="image/x-icon">
+
     <style>
+        /* 视频背景 */
+        .video-bg {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            min-width: 100%;
+            min-height: 100%;
+            width: auto;
+            height: auto;
+            transform: translate(-50%, -50%);
+            object-fit: cover; /* 无黑边铺满 */
+            z-index: -100;
+        }
+
+        /* 遮罩层（让文字更清晰） */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: -1;
+        }
+
         body {
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
-            background: #f5f5f5;
+            min-height: 100vh;
             margin: 0;
+            font-family: "Microsoft YaHei", sans-serif;
+            background-color: #000; /* 防止加载闪白 */
         }
+
         .register-box {
+            position: relative;
+            z-index: 1;
             width: 350px;
             padding: 30px;
-            background: white;
+            background: rgba(255, 255, 255, 0.2); /* 半透明 */
             border-radius: 10px;
-            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+            box-shadow: 0 0 20px rgba(0,0,0,0.3);
             text-align: center;
         }
+
         .logo-img {
             width: 80px;
             height: 80px;
@@ -30,14 +63,17 @@
             margin: 0 auto 20px;
             object-fit: cover;
         }
+
         h2 {
             margin-bottom: 20px;
             color: #333;
         }
+
         .form-item {
             margin-bottom: 15px;
             text-align: left;
         }
+
         input {
             width: 100%;
             padding: 10px;
@@ -46,6 +82,7 @@
             outline: none;
             box-sizing: border-box;
         }
+
         button {
             width: 100%;
             padding: 10px;
@@ -55,17 +92,22 @@
             border-radius: 5px;
             cursor: pointer;
             margin-top: 10px;
+            transition: 0.3s;
         }
+
         button:hover {
             background: #0f6ede;
         }
+
         .login-link {
             margin-top: 15px;
         }
+
         a {
             color: #1677ff;
             text-decoration: none;
         }
+
         .error {
             color: #ff3b30;
             margin-bottom: 15px;
@@ -73,63 +115,79 @@
             background: #fff2f0;
             border-radius: 5px;
         }
-        
-        /* 响应式设计 - 手机屏幕适配 */
+
+        /* 手机适配 */
         @media (max-width: 768px) {
             .register-box {
                 width: 90%;
-                max-width: 350px;
                 padding: 20px;
             }
-            
+
             .logo-img {
                 width: 60px;
                 height: 60px;
                 margin-bottom: 15px;
             }
-            
+
             h2 {
                 font-size: 20px;
                 margin-bottom: 15px;
             }
-            
+
             input {
                 padding: 12px;
             }
-            
+
             button {
                 padding: 12px;
             }
         }
     </style>
 </head>
+
 <body>
+
+    <!-- 视频背景 -->
+    <video id="bgVideo" class="video-bg" autoplay loop muted playsinline>
+    <source src="{{ url_for('static', filename='video/香香的熏.mp4') }}" type="video/mp4">
+</video>
+
     <div class="register-box">
-        <!-- 页面内Logo -->
-        <img src="{{ url_for('static', filename='images/❤.png') }}" class="logo-img" alt="Logo">
-        <h2>欢迎注册辉哥聊天系统</h2>
+        <img src="{{ url_for('static', filename='images/flow.jpg') }}" class="logo-img" alt="Logo">
+        <h2>欢迎注册CloudTalk</h2>
+
         {% if error %}
             <div class="error">{{ error }}</div>
         {% endif %}
+
         <form method="post">
             <div class="form-item">
                 <input type="text" name="username" placeholder="用户名" required>
             </div>
+
             <div class="form-item">
                 <input type="password" name="password" placeholder="密码" required>
             </div>
+
             <div class="form-item">
                 <input type="password" name="confirm_password" placeholder="确认密码" required>
             </div>
-            <!-- 在注册密码输入框下方添加 -->
-            <div style="font-size: 12px; color: #666; margin-top: 5px;">
+
+            <div style="font-size: 12px; color: white; margin-top: 5px;">
                 密码要求：字母+数字组合，长度不少于6位
             </div>
+
             <button type="submit">注册</button>
         </form>
+
         <div class="login-link">
             已有账号？<a href="/login">立即登录</a>
         </div>
     </div>
+
 </body>
+<script>
+    const video = document.getElementById('bgVideo');
+    video.playbackRate = 1; // 0.5倍速（慢一点）
+</script>
 </html>
