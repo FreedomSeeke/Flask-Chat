@@ -1,3 +1,5 @@
+# from gevent import monkey
+# monkey.patch_all()
 import os
 import uuid
 import random
@@ -10,6 +12,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user, \
     fresh_login_required
 from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_mail import Mail, Message as MailMessage
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import pymysql
@@ -17,6 +20,12 @@ import pymysql
 # 初始化Flask应用
 app = Flask(__name__)
 app.config['SECRET_KEY'] = '30cd3ad5fa7e09f62affc67c14700d54d24f3fc3fceac272'
+
+# 配置日志级别，减少eventlet的错误信息
+import logging
+logging.basicConfig(level=logging.WARNING)
+# 禁用eventlet的调试日志
+logging.getLogger('eventlet').setLevel(logging.ERROR)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://flaskuser:v%2BeZU0%5EOS%3EO4mTZrZRj1@127.0.0.1:3306/wechat_chat?charset=utf8mb4'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_POOL_SIZE'] = 5
@@ -37,10 +46,23 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
+# -------------- 邮件发送配置 --------------
+# 注意：请修改为您自己的邮箱配置
+# 1. QQ邮箱需要开启SMTP服务并获取授权码
+# 2. 其他邮箱请修改相应的SMTP服务器地址
+app.config['MAIL_SERVER'] = 'smtp.qq.com'  # QQ邮箱SMTP服务器
+app.config['MAIL_PORT'] = 587  # SMTP端口
+app.config['MAIL_USE_TLS'] = True  # 启用TLS
+app.config['MAIL_USERNAME'] = '3602946878@qq.com'  # 发送邮件的邮箱
+app.config['MAIL_PASSWORD'] = 'omcrzctmugoochjh'  # 邮箱授权码（不是登录密码）
+app.config['MAIL_DEFAULT_SENDER'] = '3602946878@qq.com'  # 默认发送者
+
 # 初始化数据库和SocketIO
 db = SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet',
-                    manage_session=False)  # 关闭SocketIO的session管理，避免冲突
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# 初始化邮件发送
+mail = Mail(app)
 
 # 初始化登录管理器
 login_manager = LoginManager()
@@ -64,12 +86,16 @@ class User(UserMixin, db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)  # 邮箱，唯一
     password = db.Column(db.String(500), nullable=False)
     online = db.Column(db.Boolean, default=False)
     # 登录验证相关字段
     login_attempts = db.Column(db.Integer, default=0)  # 登录失败次数
     lock_time = db.Column(db.DateTime, nullable=True)  # 账号锁定时间
     verify_code = db.Column(db.String(4), nullable=True)  # 验证码
+    # 邮箱验证相关字段
+    email_verify_code = db.Column(db.String(4), nullable=True)  # 邮箱验证码
+    email_verify_expire = db.Column(db.DateTime, nullable=True)  # 邮箱验证码过期时间
     # 权限/状态字段
     role = db.Column(db.String(20), default='user')  # user:普通用户, admin:管理员
     is_banned = db.Column(db.Boolean, default=False)  # 是否封号
@@ -166,6 +192,30 @@ def allowed_file(filename, allowed_extensions):
 # 生成4位数字验证码
 def generate_verify_code():
     return str(random.randint(1000, 9999))
+
+
+# 发送邮箱验证码
+def send_email_verify_code(email, verify_code):
+    """
+    发送邮箱验证码
+    :param email: 接收验证码的邮箱
+    :param verify_code: 验证码
+    :return: True-发送成功，False-发送失败
+    """
+    try:
+        # 正确的MailMessage初始化方式
+        msg = MailMessage(
+            subject='验证码',
+            recipients=[email],
+            body=f'您的验证码是：{verify_code}，请在5分钟内完成注册。'
+        )
+        
+        # 发送邮件
+        mail.send(msg)
+        return True
+    except Exception as e:
+        print(f"发送邮件失败: {e}")
+        return False
 
 
 # 生成唯一的会话ID（使用UUID）
@@ -441,20 +491,22 @@ def init_admin():
     """
     # 检查是否已有管理员账号
     if has_admin_account():
-        return jsonify({'code': 0, 'msg': '管理员账号已存在，无法重复创建'})
+        # 返回HTML而不是JSON，避免前端解析错误
+        return render_template('init_admin.html', error='管理员账号已存在，无法重复创建')
 
     if request.method == 'POST':
         secret_key = request.form.get('secret_key', '')
         username = request.form.get('username', '')
         password = request.form.get('password', '')
+        email = request.form.get('email', '')
 
         # 验证安全密钥
         if secret_key != INIT_ADMIN_SECRET:
             return jsonify({'code': 0, 'msg': '安全密钥错误，无法创建管理员'})
 
-        # 验证用户名和密码
-        if not username or not password:
-            return jsonify({'code': 0, 'msg': '用户名和密码不能为空'})
+        # 验证用户名、密码和邮箱
+        if not username or not password or not email:
+            return jsonify({'code': 0, 'msg': '用户名、密码和邮箱不能为空'})
 
         # 新增：管理员密码也需要符合字母+数字组合规则
         if not is_valid_password(password):
@@ -468,6 +520,7 @@ def init_admin():
         hashed_pwd = generate_password_hash(password, method='pbkdf2:sha256')
         admin = User(
             username=username,
+            email=email,
             password=hashed_pwd,
             role='admin',
             is_banned=False,
@@ -930,8 +983,9 @@ def login():
 
         # 检查临时锁定
         if is_user_locked(user):
-            remain_time = (user.lock_time + timedelta(minutes=1) - datetime.now()).seconds
-            return render_template('login.html', error=f'账号已锁定，请{remain_time}秒后重试', show_verify=False)
+            lock_end_time = user.lock_time + timedelta(minutes=1)
+            remain_time = int((lock_end_time - datetime.now()).total_seconds())
+            return render_template('login.html', error='账号已锁定，请等待解锁', show_verify=False, lock_end_time=lock_end_time.timestamp())
 
         # 验证码验证逻辑
         if user.login_attempts >= 3:
@@ -940,7 +994,8 @@ def login():
                 if user.login_attempts >= 5:
                     user.lock_time = datetime.now()
                     db.session.commit()
-                    return render_template('login.html', error='验证码错误，账号已锁定1分钟', show_verify=False)
+                    lock_end_time = user.lock_time + timedelta(minutes=1)
+                    return render_template('login.html', error='验证码错误，账号已锁定1分钟', show_verify=False, lock_end_time=lock_end_time.timestamp())
                 user.verify_code = generate_verify_code()
                 db.session.commit()
                 return render_template('login.html', error='验证码错误，请重新输入', verify_code=user.verify_code,
@@ -1018,40 +1073,95 @@ def login():
     return render_template('login.html', error='', show_verify=False)
 
 
-# -------------- 核心修改：注册路由添加密码格式校验 --------------
+# -------------- 核心修改：注册路由添加邮箱验证 --------------
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     # 禁止注册管理员账号
     if request.method == 'POST':
+        # 检查是否是发送验证码的请求
+        if 'send_code' in request.form:
+            username = request.form.get('username', '').strip()
+            email = request.form.get('email', '').strip()
+            # 验证邮箱格式
+            if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
+                return render_template('register.html', error='邮箱格式不正确', username=username, email=email)
+            # 检查邮箱是否已存在
+            if User.query.filter_by(email=email).first():
+                return render_template('register.html', error='邮箱已被注册', username=username, email=email)
+            # 检查是否在120秒内已发送过验证码（基于邮箱）
+            email_key = f'last_send_time_{email}'
+            last_send_time = session.get(email_key)
+            if last_send_time and (datetime.now().timestamp() - last_send_time) < 120:
+                return render_template('register.html', error='请120秒后再发送验证码', username=username, email=email)
+            # 生成验证码
+            verify_code = generate_verify_code()
+            # 发送验证码
+            if send_email_verify_code(email, verify_code):
+                # 将会话中存储邮箱、验证码信息和发送时间（基于邮箱）
+                session[f'register_email_{email}'] = email
+                session[f'verify_code_{email}'] = verify_code
+                session[f'verify_code_expire_{email}'] = (datetime.now() + timedelta(minutes=5)).timestamp()
+                session[email_key] = datetime.now().timestamp()
+                return render_template('register.html', success='验证码已发送，请查收', username=username, email=email, show_countdown=True)
+            else:
+                return render_template('register.html', error='验证码发送失败，请稍后重试', username=username, email=email)
+        
+        # 正常注册请求
         username = request.form['username']
+        email = request.form['email']
         password = request.form['password']
         confirm_password = request.form['confirm_password']
+        verify_code = request.form['verify_code']
 
         # 1. 检查用户名是否为管理员预留名
         if username == 'Administrator':
-            return render_template('register.html', error='禁止注册该用户名')
+            return render_template('register.html', error='禁止注册该用户名', username=username, email=email)
 
         # 2. 检查用户名是否已存在
         if User.query.filter_by(username=username).first():
-            return render_template('register.html', error='用户名已存在')
+            return render_template('register.html', error='用户名已存在', username=username, email=email)
 
-        # 3. 检查两次密码是否一致
+        # 3. 检查邮箱是否已存在
+        if User.query.filter_by(email=email).first():
+            return render_template('register.html', error='邮箱已被注册', username=username, email=email)
+
+        # 4. 检查两次密码是否一致
         if password != confirm_password:
-            return render_template('register.html', error='两次输入的密码不一致')
+            return render_template('register.html', error='两次输入的密码不一致', username=username, email=email)
 
-        # 4. 新增：密码格式校验
+        # 5. 密码格式校验
         if not is_valid_password(password):
-            return render_template('register.html', error=PASSWORD_ERROR_MSG)
+            return render_template('register.html', error=PASSWORD_ERROR_MSG, username=username, email=email)
 
-        # 4. 密码符合规则，创建用户
+        # 6. 验证验证码（基于邮箱）
+        session_email = session.get(f'register_email_{email}')
+        session_code = session.get(f'verify_code_{email}')
+        session_expire = session.get(f'verify_code_expire_{email}')
+        
+        if not session_email or session_email != email:
+            return render_template('register.html', error='请先获取验证码', username=username, email=email)
+        
+        if not session_code or session_code != verify_code:
+            return render_template('register.html', error='验证码错误', username=username, email=email)
+        
+        if session_expire and datetime.now().timestamp() > session_expire:
+            return render_template('register.html', error='验证码已过期，请重新获取', username=username, email=email)
+
+        # 7. 密码符合规则，创建用户
         hashed_pwd = generate_password_hash(password, method='pbkdf2:sha256')
         new_user = User(
             username=username,
+            email=email,
             password=hashed_pwd,
             current_session_id=None  # 初始会话ID为空
         )
         db.session.add(new_user)
         db.session.commit()
+
+        # 清除会话中的验证码信息
+        session.pop('register_email', None)
+        session.pop('verify_code', None)
+        session.pop('verify_code_expire', None)
 
         flash('注册成功，请登录', 'success')
         return redirect(url_for('login'))
@@ -1099,6 +1209,32 @@ def send_friend_request(receiver_id):
     # 检查是否有未处理的请求
     if has_pending_request(current_user.id, receiver_id):
         return jsonify({'code': 0, 'msg': '好友请求已发送，请等待对方响应'})
+    
+    # 检查对方是否已经向当前用户发送了好友请求
+    if has_pending_request(receiver_id, current_user.id):
+        # 如果对方已经发送了请求，直接成为好友
+        try:
+            # 查找对方发送的请求
+            other_request = FriendRequest.query.filter_by(
+                sender_id=receiver_id,
+                receiver_id=current_user.id,
+                status='pending'
+            ).first()
+            
+            # 删除对方的请求
+            db.session.delete(other_request)
+            
+            # 创建双向好友关系
+            friend1 = Friend(user_id=current_user.id, friend_id=receiver_id)
+            friend2 = Friend(user_id=receiver_id, friend_id=current_user.id)
+            db.session.add(friend1)
+            db.session.add(friend2)
+            
+            db.session.commit()
+            return jsonify({'code': 1, 'msg': '已成功添加好友'})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'code': 0, 'msg': '添加好友失败'})
 
     # 发送好友请求
     try:
@@ -1180,8 +1316,15 @@ def remove_friend(friend_id):
         Friend.query.filter_by(user_id=current_user.id, friend_id=friend_id).delete()
         # 删除对方对用户的好友关系
         Friend.query.filter_by(user_id=friend_id, friend_id=current_user.id).delete()
+        
+        # 删除双方之间的聊天记录
+        Message.query.filter(
+            ((Message.sender_id == current_user.id) & (Message.receiver_id == friend_id)) |
+            ((Message.sender_id == friend_id) & (Message.receiver_id == current_user.id))
+        ).delete()
+        
         db.session.commit()
-        return jsonify({'code': 1, 'msg': '删除好友成功'})
+        return jsonify({'code': 1, 'msg': '删除好友成功，聊天记录已清除'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'code': 0, 'msg': '删除好友失败'})
@@ -1417,16 +1560,15 @@ def clear_messages(receiver_id):
 @socketio.on('connect')
 @login_required
 def handle_connect():
-    # -------------- 关键修改：验证SocketIO连接的会话有效性 --------------
+    # -------------- 关键修改：验证会话有效性 --------------
     if not is_valid_session(current_user):
-        emit('connect_error', {'msg': '您的账号已在其他设备登录，无法建立连接'})
+        emit('connect_error', {'msg': '您的账号已在其他设备登录，无法连接聊天'})
         return
 
     # 禁言/封号用户禁止连接
     if current_user.is_muted or current_user.is_banned:
         emit('connect_error', {'msg': '您无权限连接聊天'})
         return
-    print(f'用户 {current_user.username} 已连接')
     join_room(str(current_user.id))
     # 推送用户状态
     user_status = {
@@ -1548,7 +1690,6 @@ def handle_send_file_message(data):
 @socketio.on('disconnect')
 @login_required
 def handle_disconnect():
-    print(f'用户 {current_user.username} 已断开连接')
     # 标记在线状态为False
     current_user.online = False
     db.session.commit()
@@ -1557,9 +1698,8 @@ def handle_disconnect():
 
 # -------------- 初始化数据库 --------------
 with app.app_context():
-    # 先删除现有表，再重新创建（解决字段缺失问题）
+    # 只创建不存在的表，不删除现有表
     db.create_all()
-    # 移除自动创建管理员账号的逻辑
     print("MySQL数据库表初始化完成！")
 
 # -------------- 修改用户信息接口 --------------
@@ -1629,4 +1769,11 @@ def update_avatar():
 
 # -------------- 运行应用 --------------
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=8000)
+    import sys
+    port = 8000
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+        except ValueError:
+            pass
+    socketio.run(app, host='0.0.0.0', port=port)

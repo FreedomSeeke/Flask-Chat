@@ -122,7 +122,7 @@
         <h2>欢迎登录CloudTalk</h2>
         
         {% if error %}
-            <div class="error">{{ error }}</div>
+            <div class="error" id="errorMessage">{{ error }}</div>
         {% endif %}
 
         <form method="post">
@@ -149,6 +149,36 @@
 </body>
 <script>
     const video = document.getElementById('bgVideo');
-    video.playbackRate = 2.5; // 0.5倍速（慢一点）
+    video.playbackRate = 1; // 0.5倍速（慢一点）
+
+    // 账号锁定时的实时跳秒功能
+    {% if lock_end_time %}
+    document.addEventListener('DOMContentLoaded', function() {
+        const errorMessage = document.getElementById('errorMessage');
+        const lockEndTime = {{ lock_end_time }};
+        
+        function updateCountdown() {
+            const now = Date.now() / 1000;
+            const remainTime = Math.max(0, Math.floor(lockEndTime - now));
+            
+            if (remainTime > 0) {
+                errorMessage.textContent = `账号已锁定，请${remainTime}秒后重试`;
+                setTimeout(updateCountdown, 1000);
+            } else {
+                errorMessage.textContent = '账号已解锁，请重新尝试登录';
+                // 解锁后重新启用表单
+                document.querySelector('button[type="submit"]').disabled = false;
+            }
+        }
+        
+        // 禁用登录按钮
+        document.querySelector('button[type="submit"]').disabled = true;
+        document.querySelector('button[type="submit"]').style.backgroundColor = '#ccc';
+        document.querySelector('button[type="submit"]').style.cursor = 'not-allowed';
+        
+        // 开始倒计时
+        updateCountdown();
+    });
+    {% endif %}
 </script>
 </html>

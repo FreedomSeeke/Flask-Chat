@@ -20,13 +20,13 @@
             font-family: "Microsoft YaHei", sans-serif;
             display: flex;
             flex-direction: column;
-			background: url("/static/images/八重神子.jpg") no-repeat center center fixed;
+			background: url("/static/images/昔涟.jpg") no-repeat center top fixed;
 			background-size: cover;
 			margin: 0;
         }
         /* 顶部导航栏 */
         .top-nav {
-            background: rgba(247, 247, 247, 0.85);
+            background: rgba(247, 247, 247, 0.65);
             padding: 10px 15px;
             border-bottom: 1px solid #e0e0e0;
             display: flex;
@@ -54,7 +54,7 @@
         }
         /* 搜索框 */
         .search-bar {
-            background: rgba(247, 247, 247, 0.85);
+            background: rgba(247, 247, 247, 0.65);
             padding: 10px 15px;
             margin-top: 45px;
             position: fixed;
@@ -81,7 +81,7 @@
             outline: none;
             font-size: 14px;
         }
-        /* 聊天列表 */
+        /* 好友列表 */
         .chat-list {
             flex: 1;
             overflow-y: auto;
@@ -90,7 +90,7 @@
         }
         .chat-item {
             padding: 15px;
-            background: rgba(255, 255, 255, 0.85);
+            background: rgba(255, 255, 255, 0.75);
             border-bottom: 1px solid #f0f0f0;
             display: flex;
             align-items: center;
@@ -156,7 +156,7 @@
         }
         /* 底部导航栏 */
         .bottom-nav {
-            background: rgba(255, 255, 255, 0.85);
+            background: rgba(255, 255, 255, 0.65);
             border-top: 1px solid #e0e0e0;
             display: flex;
             justify-content: space-around;
@@ -648,6 +648,13 @@
             $('.chat-item').click(function() {
                 currentReceiverId = $(this).data('user-id');
                 currentReceiverName = $(this).data('username');
+                
+                // 检查是否是非好友（有发送请求按钮）
+                if ($(this).find('.send-request-btn').length > 0) {
+                    // 非好友，只允许发送好友请求，不进入聊天界面
+                    return;
+                }
+                
                 if (currentReceiverId && currentReceiverName) {
                     $('#chat-title').text(currentReceiverName);
                     // 启用输入框和按钮

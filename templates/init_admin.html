@@ -7,15 +7,23 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-			min-height: 100vh; 
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: url("/static/images/昔涟.jpg") no-repeat center center fixed;
+            background-size: cover;
+            margin: 0;
+            padding: 20px;
+        }
+        .form-container {
             max-width: 400px;
-            margin: 50px auto;
+            width: 100%;
             padding: 20px;
             border: 1px solid #ddd;
             border-radius: 8px;
-			background: url("/static/images/八重神子.jpg") no-repeat center center fixed;
-			background-size: cover;
-			margin: 0;
+            background-color: rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
         }
         .form-group {
             margin-bottom: 15px;
@@ -55,24 +63,33 @@
     </style>
 </head>
 <body>
-    <h2>初始化管理员账号</h2>
-    <div id="message"></div>
+    <div class="form-container">
+        <h2>初始化管理员账号</h2>
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        <div id="message"></div>
 
-    <form id="initForm">
-        <div class="form-group">
-            <label for="secret_key">安全密钥</label>
-            <input type="text" id="secret_key" name="secret_key" required placeholder="输入初始化密钥">
-        </div>
-        <div class="form-group">
-            <label for="username">管理员用户名</label>
-            <input type="text" id="username" name="username" required placeholder="设置管理员账号">
-        </div>
-        <div class="form-group">
-            <label for="password">管理员密码</label>
-            <input type="password" id="password" name="password" required placeholder="设置管理员密码（至少6位）">
-        </div>
-        <button type="submit">创建管理员账号</button>
-    </form>
+        <form id="initForm">
+            <div class="form-group">
+                <label for="secret_key">安全密钥</label>
+                <input type="text" id="secret_key" name="secret_key" required placeholder="输入初始化密钥">
+            </div>
+            <div class="form-group">
+                <label for="username">管理员用户名</label>
+                <input type="text" id="username" name="username" required placeholder="设置管理员账号">
+            </div>
+            <div class="form-group">
+                <label for="password">管理员密码</label>
+                <input type="password" id="password" name="password" required placeholder="设置管理员密码（至少6位）">
+            </div>
+            <div class="form-group">
+                <label for="email">管理员邮箱</label>
+                <input type="email" id="email" name="email" required placeholder="设置管理员邮箱">
+            </div>
+            <button type="submit">创建管理员账号</button>
+        </form>
+    </div>
 
     <script>
         document.getElementById('initForm').addEventListener('submit', function(e) {
