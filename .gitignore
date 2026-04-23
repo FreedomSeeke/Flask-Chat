@@ -1,0 +1,14 @@
+# virtual env
+venv/
+env/
+flask_chat/
+
+# python cache
+__pycache__/
+*.pyc
+
+# uploads
+static/uploads/
+
+# system
+.DS_Store

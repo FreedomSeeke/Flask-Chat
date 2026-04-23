@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>CloudTalk-导出管理</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/香香的熏.jpg') }}" type="image/x-icon">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+    /* 1. 确保 body 至少占满整个屏幕高度 */
+    min-height: 100vh; 
+    
+    /* 2. 这里的 margin: 0 很关键 */
+    margin: 0;
+    
+    /* 3. 背景设置 */
+    background: url("/static/images/昔涟.jpg") no-repeat center top fixed;
+    background-size: cover;
+    
+    /* 4. 其他原有样式 */
+    font-family: "Microsoft YaHei", sans-serif;
+    padding: 20px;
+    box-sizing: border-box; /* 防止 padding 撑开滚动条 */
+}
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .header h1 {
+            color: white;
+        }
+        .nav-links {
+            display: flex;
+            gap: 10px;
+        }
+        .nav-link {
+            color: #1677ff;
+            text-decoration: none;
+            padding: 5px 10px;
+            border: 1px solid #1677ff;
+            border-radius: 5px;
+        }
+        .logout-link {
+            color: #ff3b30;
+            text-decoration: none;
+            padding: 5px 10px;
+            border: 1px solid #ff3b30;
+            border-radius: 5px;
+        }
+        .export-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .export-section {
+            margin-bottom: 30px;
+        }
+        .export-section h2 {
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        .btn-primary {
+            background: #1677ff;
+            color: white;
+        }
+        .btn-success {
+            background: #52c41a;
+            color: white;
+        }
+        .btn-warning {
+            background: #fa8c16;
+            color: white;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .form-group select {
+            width: 300px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .user-list {
+            margin-top: 20px;
+        }
+        .user-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .user-item:hover {
+            background: #f9f9f9;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .user-actions {
+            display: flex;
+            gap: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>管理员面板 - 导出管理</h1>
+        <div class="nav-links">
+            <a href="/admin/panel" class="nav-link">用户管理</a>
+            <a href="/admin/view_activities" class="nav-link">查看用户行为日志</a>
+            <a href="/logout" class="logout-link">退出登录</a>
+        </div>
+    </div>
+
+    <div class="export-container">
+        <!-- 导出用户行为日志 -->
+        <div class="export-section">
+            <h2>用户行为日志导出</h2>
+            <p>导出所有用户的行为日志为Excel文件</p>
+            <a href="/admin/export_activities" class="btn btn-primary">导出CouldTalk行为日志.xlsx</a>
+        </div>
+
+        <!-- 导出所有用户聊天记录 -->
+        <div class="export-section">
+            <h2>聊天记录导出</h2>
+            <p>导出所有用户的聊天记录为Excel文件</p>
+            <a href="/admin/export_messages" class="btn btn-success">导出CouldTalk所有用户聊天记录.xlsx</a>
+        </div>
+
+        <!-- 导出指定用户聊天记录 -->
+        <div class="export-section">
+            <h2>导出指定用户聊天记录</h2>
+            <p>选择用户并导出其聊天记录</p>
+            <div class="form-group">
+                <label for="userSelect">选择用户：</label>
+                <select id="userSelect">
+                    {% for user in users %}
+                        <option value="{{ user.id }}">{{ user.username }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="btn btn-warning" onclick="exportUserMessages()">导出选定用户聊天记录</button>
+        </div>
+
+        <!-- 用户列表 -->
+        <div class="export-section">
+            <h2>用户列表</h2>
+            <div class="user-list">
+                {% for user in users %}
+                    <div class="user-item">
+                        <div class="user-info">
+                            <span><strong>ID:</strong> {{ user.id }}</span>
+                            <span><strong>用户名:</strong> {{ user.username }}</span>
+                            <span><strong>角色:</strong> {{ '管理员' if user.role == 'admin' else '普通用户' }}</span>
+                        </div>
+                        <div class="user-actions">
+                            <a href="/admin/export_user_messages/{{ user.id }}" class="btn btn-primary">导出聊天记录</a>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function exportUserMessages() {
+            const userId = document.getElementById('userSelect').value;
+            if (userId) {
+                window.location.href = `/admin/export_user_messages/${userId}`;
+            } else {
+                alert('请选择一个用户');
+            }
+        }
+    </script>
+</body>
+</html>
