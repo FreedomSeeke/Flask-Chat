@@ -11,4 +11,4 @@ __pycache__/
 static/uploads/
 
 # system
-.DS_Store
+.DS_Storestatic/uploads/ 
