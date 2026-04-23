@@ -88,7 +88,10 @@
 <body>
     <div class="header">
         <h1>聊天记录 - {{ target_user.username }}</h1>
-        <a href="/admin/panel" class="back-link">返回管理面板</a>
+        <div style="display: flex; gap: 10px;">
+            <a href="/admin/export_user_messages/{{ target_user.id }}" class="back-link" style="background: #1677ff; color: white; border-color: #1677ff;">导出聊天记录</a>
+            <a href="/admin/panel" class="back-link">返回管理面板</a>
+        </div>
     </div>
 
     <div class="message-box">

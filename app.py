@@ -7,7 +7,7 @@ import re  # 新增：引入正则表达式模块
 import platform
 from sqlalchemy.sql import func
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_from_directory, session
+from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_from_directory, session, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user, \
     fresh_login_required
@@ -16,6 +16,7 @@ from flask_mail import Mail, Message as MailMessage
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import pymysql
+from openpyxl import Workbook
 
 # 初始化Flask应用
 app = Flask(__name__)
@@ -961,6 +962,197 @@ def clear_activities():
         db.session.rollback()
         return jsonify({'code': 0, 'msg': '清空失败'})
 
+# 导出用户行为日志
+@app.route('/admin/export_activities')
+@login_required
+@admin_required
+def export_activities():
+    """
+    导出所有用户行为日志为Excel文件
+    """
+    try:
+        # 创建工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "用户行为日志"
+
+        # 设置表头
+        ws.append(['ID', '用户名', 'IP地址', '行为类型', '行为详情', '创建时间'])
+
+        # 查询所有用户行为日志
+        activities = UserActivity.query.order_by(UserActivity.id).all()
+
+        # 填充数据
+        for activity in activities:
+            user = db.session.get(User, activity.user_id)
+            username = user.username if user else '未知用户'
+            ws.append([
+                activity.id,
+                username,
+                activity.ip_address,
+                activity.action_type,
+                activity.action_detail or '',
+                activity.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            ])
+
+        # 生成临时文件
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+            tmp_path = tmp.name
+        wb.save(tmp_path)
+
+        # 记录管理员操作
+        log_user_activity(current_user.id, 'admin_action', '导出用户行为日志')
+
+        # 发送文件
+        return send_file(
+            tmp_path,
+            as_attachment=True,
+            download_name='CouldTalk行为日志.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        print(f"导出用户行为日志失败: {e}")
+        flash('导出失败，请稍后重试', 'error')
+        return redirect(url_for('view_activities'))
+
+# 导出聊天记录
+@app.route('/admin/export_messages')
+@login_required
+@admin_required
+def export_messages():
+    """
+    导出所有用户的聊天记录为Excel文件
+    """
+    try:
+        # 创建工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "聊天记录"
+
+        # 设置表头
+        ws.append(['ID', '发送者', '接收者', '内容', '文件类型', '文件路径', '时间'])
+
+        # 查询所有聊天记录
+        messages = Message.query.order_by(Message.id).all()
+
+        # 填充数据
+        for msg in messages:
+            sender = db.session.get(User, msg.sender_id)
+            receiver = db.session.get(User, msg.receiver_id)
+            sender_name = sender.username if sender else '未知用户'
+            receiver_name = receiver.username if receiver else '未知用户'
+            ws.append([
+                msg.id,
+                sender_name,
+                receiver_name,
+                msg.content or '',
+                msg.file_type or '',
+                msg.file_path or '',
+                msg.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            ])
+
+        # 生成临时文件
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+            tmp_path = tmp.name
+        wb.save(tmp_path)
+
+        # 记录管理员操作
+        log_user_activity(current_user.id, 'admin_action', '导出所有用户聊天记录')
+
+        # 发送文件
+        return send_file(
+            tmp_path,
+            as_attachment=True,
+            download_name='CouldTalk所有用户聊天记录.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        print(f"导出聊天记录失败: {e}")
+        flash('导出失败，请稍后重试', 'error')
+        return redirect(url_for('admin_panel'))
+
+# 导出指定用户的聊天记录
+@app.route('/admin/export_user_messages/<int:user_id>')
+@login_required
+@admin_required
+def export_user_messages(user_id):
+    """
+    导出指定用户的聊天记录为Excel文件
+    """
+    try:
+        # 获取用户信息
+        user = User.query.get_or_404(user_id)
+
+        # 创建工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f"{user.username}的聊天记录"
+
+        # 设置表头
+        ws.append(['ID', '发送者', '接收者', '内容', '文件类型', '文件路径', '时间'])
+
+        # 查询该用户的聊天记录
+        messages = Message.query.filter(
+            (Message.sender_id == user_id) | (Message.receiver_id == user_id)
+        ).order_by(Message.id).all()
+
+        # 填充数据
+        for msg in messages:
+            sender = db.session.get(User, msg.sender_id)
+            receiver = db.session.get(User, msg.receiver_id)
+            sender_name = sender.username if sender else '未知用户'
+            receiver_name = receiver.username if receiver else '未知用户'
+            ws.append([
+                msg.id,
+                sender_name,
+                receiver_name,
+                msg.content or '',
+                msg.file_type or '',
+                msg.file_path or '',
+                msg.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            ])
+
+        # 生成临时文件
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+            tmp_path = tmp.name
+        wb.save(tmp_path)
+
+        # 记录管理员操作
+        log_user_activity(current_user.id, 'admin_action', f'导出用户 {user.username} 的聊天记录')
+
+        # 发送文件
+        return send_file(
+            tmp_path,
+            as_attachment=True,
+            download_name=f'CouldTalk_{user.username}聊天记录.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        print(f"导出用户聊天记录失败: {e}")
+        flash('导出失败，请稍后重试', 'error')
+        return redirect(url_for('view_all_messages', user_id=user_id))
+
+# 导出页面
+@app.route('/admin/export')
+@login_required
+@admin_required
+def export_page():
+    """
+    导出功能页面
+    """
+    # 记录管理后台访问行为
+    log_user_activity(current_user.id, 'admin_access', '访问导出页面')
+
+    # 获取所有用户
+    users = User.query.all()
+
+    return render_template('admin_export.html',
+                           current_user=current_user,
+                           users=users)
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -985,7 +1177,7 @@ def login():
         if is_user_locked(user):
             lock_end_time = user.lock_time + timedelta(minutes=1)
             remain_time = int((lock_end_time - datetime.now()).total_seconds())
-            return render_template('login.html', error='账号已锁定，请等待解锁', show_verify=False, lock_end_time=lock_end_time.timestamp())
+            return render_template('login.html', error='账号已锁定，请等待解锁', show_verify=False, lock_end_time=lock_end_time.timestamp(), locked_username=username)
 
         # 验证码验证逻辑
         if user.login_attempts >= 3:
@@ -995,7 +1187,7 @@ def login():
                     user.lock_time = datetime.now()
                     db.session.commit()
                     lock_end_time = user.lock_time + timedelta(minutes=1)
-                    return render_template('login.html', error='验证码错误，账号已锁定1分钟', show_verify=False, lock_end_time=lock_end_time.timestamp())
+                    return render_template('login.html', error='验证码错误，账号已锁定1分钟', show_verify=False, lock_end_time=lock_end_time.timestamp(), locked_username=username)
                 user.verify_code = generate_verify_code()
                 db.session.commit()
                 return render_template('login.html', error='验证码错误，请重新输入', verify_code=user.verify_code,
@@ -1030,7 +1222,8 @@ def login():
                 if user.login_attempts >= 5:
                     user.lock_time = datetime.now()
                     db.session.commit()
-                    return render_template('login.html', error='账户或密码错误，账号已锁定1分钟', show_verify=False)
+                    lock_end_time = user.lock_time + timedelta(minutes=1)
+                    return render_template('login.html', error='账户或密码错误，账号已锁定1分钟', show_verify=False, lock_end_time=lock_end_time.timestamp(), locked_username=username)
                 user.verify_code = generate_verify_code()
                 db.session.commit()
                 return render_template('login.html', error='账户或密码错误，请重新输入', verify_code=user.verify_code,
@@ -1183,6 +1376,88 @@ def logout():
     logout_user()
     flash('您已成功登出', 'info')
     return redirect(url_for('login'))
+
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    """
+    API登录接口，用于Apifox测试
+    接受JSON格式的请求，返回JSON格式的响应
+    """
+    try:
+        # 获取JSON数据
+        data = request.json
+        if not data:
+            return jsonify({'code': 400, 'msg': '请提供JSON格式的请求数据'})
+        
+        username = data.get('username')
+        password = data.get('password')
+        verify_code = data.get('verify_code', '')
+        
+        if not username or not password:
+            return jsonify({'code': 400, 'msg': '用户名和密码不能为空'})
+        
+        # 查询用户
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            return jsonify({'code': 401, 'msg': '用户名不存在'})
+        
+        # 检查是否封号
+        if user.is_banned:
+            return jsonify({'code': 403, 'msg': '该账号已被封号，无法登录'})
+        
+        # 检查临时锁定
+        if is_user_locked(user):
+            return jsonify({'code': 423, 'msg': '账号已锁定，请等待解锁'})
+        
+        # 验证码验证逻辑
+        if user.login_attempts >= 3:
+            if not verify_code or verify_code != user.verify_code:
+                user.login_attempts += 1
+                if user.login_attempts >= 5:
+                    user.lock_time = datetime.now()
+                    db.session.commit()
+                    return jsonify({'code': 423, 'msg': '验证码错误，账号已锁定1分钟'})
+                user.verify_code = generate_verify_code()
+                db.session.commit()
+                return jsonify({'code': 401, 'msg': '验证码错误，请重新输入', 'verify_code': user.verify_code, 'show_verify': True})
+        
+        # 验证密码
+        if not check_password_hash(user.password, password):
+            user.login_attempts += 1
+            if user.login_attempts >= 5:
+                user.lock_time = datetime.now()
+                db.session.commit()
+                return jsonify({'code': 423, 'msg': '账户或密码错误，账号已锁定1分钟'})
+            if user.login_attempts >= 3:
+                user.verify_code = generate_verify_code()
+                db.session.commit()
+                return jsonify({'code': 401, 'msg': f'账户或密码错误（{user.login_attempts}/5），请输入验证码', 'verify_code': user.verify_code, 'show_verify': True})
+            db.session.commit()
+            return jsonify({'code': 401, 'msg': f'账户或密码错误（{user.login_attempts}/5）'})
+        
+        # 登录成功
+        new_session_id = generate_session_id()
+        # 更新用户记录
+        user.login_attempts = 0
+        user.verify_code = None
+        user.online = True
+        user.login_device = get_login_device()
+        user.last_login_time = datetime.now()
+        user.session_created_at = datetime.now()
+        user.current_session_id = new_session_id
+        db.session.commit()
+        
+        # 记录登录成功行为
+        log_user_activity(user.id, 'login', f'登录成功，设备: {user.login_device}')
+        
+        # 登录用户
+        login_user(user, remember=False)
+        session[SESSION_ID_KEY] = new_session_id
+        
+        return jsonify({'code': 200, 'msg': '登录成功', 'user_id': user.id, 'username': user.username, 'role': user.role})
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': f'登录失败：{str(e)}'})
 
 
 @app.route('/friend/request/<int:receiver_id>', methods=['POST'])
@@ -1744,7 +2019,7 @@ def update_avatar():
 
     # 检查文件类型
     if not allowed_file(file.filename, ALLOWED_IMAGE_EXTENSIONS):
-        return jsonify({'code': 0, 'msg': f'不支持的文件格式，仅支持图片({",".join(ALLOWED_IMAGE_EXTENSIONS)})'})
+        return jsonify({'code': 0, 'msg': f'不支持的文件格式，仅支持图片({"|".join(ALLOWED_IMAGE_EXTENSIONS)})'})
 
     # 检查文件大小
     file_size = len(file.read())
@@ -1764,7 +2039,42 @@ def update_avatar():
     # 记录操作
     log_user_activity(current_user.id, 'update_avatar', f'更新头像: {unique_filename}')
 
-    return jsonify({'code': 1, 'msg': '头像更新成功'})
+    return jsonify({'code': 1, 'msg': '头像更新成功', 'data': {'filename': unique_filename}})
+
+
+@app.route('/change_password', methods=['POST'])
+@login_required
+def change_password():
+    """
+    用户修改密码
+    :return: JSON响应
+    """
+    old_password = request.form.get('old_password')
+    new_password = request.form.get('new_password')
+
+    # 验证输入
+    if not old_password:
+        return jsonify({'code': 0, 'msg': '请输入原密码'})
+    if not new_password:
+        return jsonify({'code': 0, 'msg': '请输入新密码'})
+
+    # 验证原密码
+    if not check_password_hash(current_user.password, old_password):
+        return jsonify({'code': 0, 'msg': '原密码错误'})
+
+    # 验证新密码格式
+    if not is_valid_password(new_password):
+        return jsonify({'code': 0, 'msg': PASSWORD_ERROR_MSG})
+
+    # 更新密码
+    hashed_pwd = generate_password_hash(new_password, method='pbkdf2:sha256')
+    current_user.password = hashed_pwd
+    db.session.commit()
+
+    # 记录操作
+    log_user_activity(current_user.id, 'change_password', '修改密码')
+
+    return jsonify({'code': 1, 'msg': '密码修改成功'})
 
 
 # -------------- 运行应用 --------------

@@ -1297,8 +1297,13 @@
                     success: function(res) {
                         if (res.code === 1) {
                             alert(res.msg);
-                            // 刷新页面以更新头像
-                            location.reload();
+                            // 直接更新头像显示，不刷新页面
+                            const avatarElement = $('#avatar-input').parent().find('img');
+                            if (avatarElement.length > 0) {
+                                // 给图片URL添加时间戳，避免缓存
+                                const newAvatarUrl = '/static/uploads/' + res.data.filename + '?t=' + new Date().getTime();
+                                avatarElement.attr('src', newAvatarUrl);
+                            }
                         } else {
                             alert(res.msg);
                         }
