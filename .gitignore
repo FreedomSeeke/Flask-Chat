@@ -8,6 +8,7 @@ __pycache__/
 *.pyc
 
 # uploads
+static/video/
 static/uploads/
 
 # system
