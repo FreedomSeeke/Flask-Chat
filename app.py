@@ -27,7 +27,7 @@ import logging
 logging.basicConfig(level=logging.WARNING)
 # 禁用eventlet的调试日志
 logging.getLogger('eventlet').setLevel(logging.ERROR)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://flaskuser:v%2BeZU0%5EOS%3EO4mTZrZRj1@127.0.0.1:3306/wechat_chat?charset=utf8mb4'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://flaskuser:password@127.0.0.1:3306/wechat_chat?charset=utf8mb4'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_POOL_SIZE'] = 5
 app.config['SQLALCHEMY_POOL_RECYCLE'] = 3600
