@@ -20,7 +20,7 @@ from openpyxl import Workbook
 
 # 初始化Flask应用
 app = Flask(__name__)
-app.config['SECRET_KEY'] = '30cd3ad5fa7e09f62affc67c14700d54d24f3fc3fceac272'
+app.config['SECRET_KEY'] = 'your_key'
 
 # 配置日志级别，减少eventlet的错误信息
 import logging
