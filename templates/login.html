@@ -40,6 +40,7 @@
             border-radius: 10px;
             box-shadow: 0 0 20px rgba(0,0,0,0.3);
             text-align: center;
+            margin-bottom: 80px;
         }
 
         .logo-img {
@@ -126,6 +127,7 @@
         {% endif %}
 
         <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-item">
                 <input type="text" name="username" placeholder="用户名" required>
             </div>
@@ -152,33 +154,79 @@
     video.playbackRate = 1; // 0.5倍速（慢一点）
 
     // 账号锁定时的实时跳秒功能
-    {% if lock_end_time %}
+    {% if lock_end_time and locked_username %}
     document.addEventListener('DOMContentLoaded', function() {
         const errorMessage = document.getElementById('errorMessage');
         const lockEndTime = {{ lock_end_time }};
+        const lockedUsername = {{ locked_username|tojson }};
+        const usernameInput = document.querySelector('input[name="username"]');
+        const submitButton = document.querySelector('button[type="submit"]');
+        
+        function updateButtonState() {
+            const currentUsername = usernameInput.value.trim();
+            const now = Date.now() / 1000;
+            const remainTime = Math.max(0, Math.floor(lockEndTime - now));
+            
+            if (remainTime > 0 && currentUsername === lockedUsername) {
+                // 只有当前输入的用户名与被锁定的用户名一致时，才禁用按钮
+                submitButton.disabled = true;
+                submitButton.style.backgroundColor = '#ccc';
+                submitButton.style.cursor = 'not-allowed';
+            } else {
+                // 其他情况启用按钮
+                submitButton.disabled = false;
+                submitButton.style.backgroundColor = '#07C160';
+                submitButton.style.cursor = 'pointer';
+            }
+        }
         
         function updateCountdown() {
             const now = Date.now() / 1000;
             const remainTime = Math.max(0, Math.floor(lockEndTime - now));
             
             if (remainTime > 0) {
-                errorMessage.textContent = `账号已锁定，请${remainTime}秒后重试`;
+                const currentUsername = usernameInput.value.trim();
+                // 只在输入的是被锁定的用户名时显示倒计时
+                if (currentUsername === lockedUsername) {
+                    errorMessage.textContent = `账号已锁定，请${remainTime}秒后重试`;
+                } else {
+                    // 如果输入的是其他用户名，清除错误信息
+                    errorMessage.textContent = '';
+                }
                 setTimeout(updateCountdown, 1000);
             } else {
-                errorMessage.textContent = '账号已解锁，请重新尝试登录';
-                // 解锁后重新启用表单
-                document.querySelector('button[type="submit"]').disabled = false;
+                errorMessage.textContent = '';
             }
+            
+            updateButtonState();
         }
         
-        // 禁用登录按钮
-        document.querySelector('button[type="submit"]').disabled = true;
-        document.querySelector('button[type="submit"]').style.backgroundColor = '#ccc';
-        document.querySelector('button[type="submit"]').style.cursor = 'not-allowed';
+        // 监听用户名输入框的变化
+        usernameInput.addEventListener('input', function() {
+            updateButtonState();
+            // 当用户名改变时，更新倒计时显示
+            updateCountdown();
+        });
+        
+        // 页面加载时，确保按钮初始状态是启用的
+        submitButton.disabled = false;
+        submitButton.style.backgroundColor = '#07C160';
+        submitButton.style.cursor = 'pointer';
         
         // 开始倒计时
         updateCountdown();
     });
     {% endif %}
 </script>
+
+<div style="position: fixed; bottom: 0px; left: 0; right: 0; text-align: center; font-size: 12px; z-index: 999; background: #fff; padding: 8px 12px; border-radius: 8px; width: fit-content; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+    <a href="https://beian.miit.gov.cn/" target="_blank" style="color: #1677ff; text-decoration: none;">渝ICP备2026007384号-1</a>
+    <span style="margin-left: 10px;">
+        <img src="{{ url_for('static', filename='images/备案图标.png') }}" style="vertical-align: middle; width: 16px; height: 16px; margin-right: 5px;" alt="备案图标">
+        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=50022502000890" target="_blank" style="color: #1677ff; text-decoration: none;">渝公网安备50022502000890号</a>
+    </span>
+    <span style="margin-left: 10px; color: #666;">
+    © <script>document.write(new Date().getFullYear())</script> LLH All Rights Reserved.
+</span>
+</div>
 </html>

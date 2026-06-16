@@ -18,13 +18,13 @@
     margin: 0;
     
     /* 3. 背景设置 */
-    background: url("/static/images/昔涟.jpg") no-repeat center top fixed;
-    background-size: cover;
+    background: #f0f0f0;
     
     /* 4. 其他原有样式 */
     font-family: "Microsoft YaHei", sans-serif;
     padding: 20px;
-    box-sizing: border-box; /* 防止 padding 撑开滚动条 */
+    padding-bottom: 80px;
+    box-sizing: border-box;
 }
         .header {
             display: flex;
@@ -80,6 +80,13 @@
         }
         .btn-warning:hover {
             background: #ffc53d;
+        }
+        .btn-primary {
+            background: #1677ff;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #40a9ff;
         }
         .activity-table {
             width: 100%;
@@ -194,7 +201,7 @@
 </head>
 <body>
     <div class="header">
-        <h1 style="color: white;">用户行为日志</h1>
+        <h1>用户行为日志</h1>
         <div class="nav-links">
             <a href="/admin/panel" class="nav-link">返回管理员面板</a>
             <a href="/logout" class="logout-link">退出登录</a>
@@ -202,6 +209,7 @@
     </div>
 
     <div class="action-buttons">
+        <a href="/admin/export_activities" class="btn btn-primary" style="text-decoration: none;">导出行为日志</a>
         <button id="batchDeleteBtn" class="btn btn-danger" disabled>批量删除</button>
         <button id="clearAllBtn" class="btn btn-warning">清空所有</button>
     </div>
@@ -377,5 +385,16 @@
             });
         });
     </script>
+
+    <div style="position: fixed; bottom: 0px; left: 0; right: 0; text-align: center; font-size: 12px; z-index: 999; background: #fff; padding: 8px 12px; border-radius: 8px; width: fit-content; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+        <a href="https://beian.miit.gov.cn/" target="_blank" style="color: #1677ff; text-decoration: none;">渝ICP备2026007384号-1</a>
+        <span style="margin-left: 10px;">
+            <img src="{{ url_for('static', filename='images/备案图标.png') }}" style="vertical-align: middle; width: 16px; height: 16px; margin-right: 5px;" alt="备案图标">
+            <a href="https://beian.mps.gov.cn/#/query/webSearch?code=50022502000890" target="_blank" style="color: #1677ff; text-decoration: none;">渝公网安备50022502000890号</a>
+        </span>
+        <span style="margin-left: 10px; color: #666;">
+    © <script>document.write(new Date().getFullYear())</script> LLH All Rights Reserved.
+</span>
+    </div>
 </body>
 </html>

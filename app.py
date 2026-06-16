@@ -5,28 +5,74 @@ import uuid
 import random
 import re  # 新增：引入正则表达式模块
 import platform
+import imghdr
 from sqlalchemy.sql import func
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_from_directory, session
+from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, send_from_directory, session, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user, \
     fresh_login_required
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_mail import Mail, Message as MailMessage
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from markupsafe import escape
 import pymysql
+from openpyxl import Workbook
+from urllib.parse import quote_plus
+from dotenv import load_dotenv
+
+# 检查并加载.env文件
+env_file_exists = os.path.exists('.env')
+if env_file_exists:
+    load_dotenv()
+    print("✅ 使用.env环境变量配置")
+else:
+    print("⚠️  未找到.env文件，使用默认配置")
 
 # 初始化Flask应用
 app = Flask(__name__)
-app.config['SECRET_KEY'] = '30cd3ad5fa7e09f62affc67c14700d54d24f3fc3fceac272'
+
+app.config.update(
+    SECRET_KEY=os.getenv('SECRET_KEY'),
+
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+
+    REMEMBER_COOKIE_SECURE=True,
+    REMEMBER_COOKIE_HTTPONLY=True,
+    REMEMBER_COOKIE_SAMESITE='Lax'
+)
+
+# 配置SECRET_KEY
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+
+# 会话安全配置 - 开发环境下禁用Secure cookie以便本地HTTP测试
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # 禁止JavaScript访问
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # 防止CSRF
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)  # 会话有效期
+
+# 启用CSRF保护
+csrf = CSRFProtect(app)
 
 # 配置日志级别，减少eventlet的错误信息
 import logging
 logging.basicConfig(level=logging.WARNING)
 # 禁用eventlet的调试日志
 logging.getLogger('eventlet').setLevel(logging.ERROR)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://flaskuser:v%2BeZU0%5EOS%3EO4mTZrZRj1@127.0.0.1:3306/wechat_chat?charset=utf8mb4'
+
+# 数据库配置
+db_user = os.getenv('DB_USER', 'CouldTalk')
+db_password = quote_plus(os.getenv('DB_PASSWORD'))
+db_host = os.getenv('DB_HOST', '127.0.0.1')
+db_port = os.getenv('DB_PORT', '3306')
+db_name = os.getenv('DB_NAME', 'CouldTalk')
+
+app.config['SQLALCHEMY_DATABASE_URI'] = \
+f'mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}?charset=utf8mb4'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_POOL_SIZE'] = 5
 app.config['SQLALCHEMY_POOL_RECYCLE'] = 3600
@@ -50,16 +96,17 @@ if not os.path.exists(UPLOAD_FOLDER):
 # 注意：请修改为您自己的邮箱配置
 # 1. QQ邮箱需要开启SMTP服务并获取授权码
 # 2. 其他邮箱请修改相应的SMTP服务器地址
-app.config['MAIL_SERVER'] = 'smtp.qq.com'  # QQ邮箱SMTP服务器
-app.config['MAIL_PORT'] = 587  # SMTP端口
-app.config['MAIL_USE_TLS'] = True  # 启用TLS
-app.config['MAIL_USERNAME'] = '3602946878@qq.com'  # 发送邮件的邮箱
-app.config['MAIL_PASSWORD'] = 'omcrzctmugoochjh'  # 邮箱授权码（不是登录密码）
-app.config['MAIL_DEFAULT_SENDER'] = '3602946878@qq.com'  # 默认发送者
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')  # SMTP服务器
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT'))  # SMTP端口
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS').lower() == 'true'  # 启用TLS
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')  # 发送邮件的邮箱
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')  # 邮箱授权码
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_USERNAME')  # 默认发送者
 
 # 初始化数据库和SocketIO
 db = SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+# 限制CORS来源，生产环境应设置为具体域名
+socketio = SocketIO(app, cors_allowed_origins="*")  # 开发环境暂时保持*, 生产环境请修改
 
 # 初始化邮件发送
 mail = Mail(app)
@@ -70,15 +117,21 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 
 # 安全密钥（用于创建初始管理员，可自行修改）
-INIT_ADMIN_SECRET = '2381b3335f76ca56db8beaa127181ef37accbdb7223e559e46a47c58d549fe2d'  # 建议修改为自己的密钥
+INIT_ADMIN_SECRET = os.getenv('INIT_ADMIN_SECRET')
 
 # -------------- 会话常量 --------------
 SESSION_ID_KEY = 'user_session_id'  # session中存储会话ID的键名
 SESSION_TIMEOUT = 3600  # 会话超时时间（秒），默认1小时
 
 # -------------- 密码校验常量 --------------
-PASSWORD_PATTERN = r'^(?=.*[a-zA-Z])(?=.*\d).{6,}$'  # 密码规则：至少6位，包含字母和数字
-PASSWORD_ERROR_MSG = '密码必须是字母和数字的组合，且长度不少于6位'
+# 增强密码策略：至少8位，包含大小写字母、数字和特殊字符
+PASSWORD_PATTERN = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$'
+PASSWORD_ERROR_MSG = '密码必须至少8位，包含大小写字母、数字和特殊字符(@$!%*?&#)'
+
+# -------------- 安全常量 --------------
+ACCOUNT_LOCKOUT_MINUTES = 10  # 账号锁定时间：10分钟
+LOGIN_ATTEMPTS_BEFORE_CAPTCHA = 3  # 出现验证码的失败尝试次数
+MAX_LOGIN_ATTEMPTS = 5  # 最大失败尝试次数
 
 
 # -------------- 数据库模型修改 --------------
@@ -227,7 +280,7 @@ def generate_session_id():
 def is_user_locked(user):
     if not user.lock_time:
         return False
-    if datetime.now() - user.lock_time < timedelta(minutes=1):
+    if datetime.now() - user.lock_time < timedelta(minutes=ACCOUNT_LOCKOUT_MINUTES):
         return True
     # 超过锁定时间，重置状态
     user.lock_time = None
@@ -482,8 +535,29 @@ def admin_required(f):
     return decorated_function
 
 
+# -------------- 安全头部配置 --------------
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+
+    response.headers['Content-Security-Policy'] = (
+    "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
+    "style-src 'self' 'unsafe-inline' https:; "
+    "img-src 'self' data: https: blob:; "
+    "font-src 'self' data: https:; "
+    "connect-src 'self' https: wss:; "
+)
+
+    return response
+
+
 # -------------- 新增：初始化管理员账号路由 --------------
 @app.route('/init_admin', methods=['GET', 'POST'])
+@csrf.exempt
 def init_admin():
     """
     初始化管理员账号的特殊入口
@@ -576,6 +650,7 @@ def admin_panel():
 
 # 管理员修改用户状态（禁言/封号）
 @app.route('/admin/update_user/<int:user_id>', methods=['POST'])
+@csrf.exempt
 @login_required
 @admin_required
 def update_user_status(user_id):
@@ -615,6 +690,7 @@ def update_user_status(user_id):
 
 # 管理员修改用户密码
 @app.route('/admin/change_password/<int:user_id>', methods=['POST'])
+@csrf.exempt
 @login_required
 @admin_required
 def change_user_password(user_id):
@@ -645,6 +721,7 @@ def change_user_password(user_id):
 
 # 管理员注销用户账户
 @app.route('/admin/logout_user/<int:user_id>', methods=['POST'])
+@csrf.exempt
 @login_required
 @admin_required
 def logout_user_account(user_id):
@@ -699,18 +776,18 @@ def view_all_messages(user_id):
         (Message.sender_id == user_id) | (Message.receiver_id == user_id)
     ).order_by(Message.timestamp.desc()).all()
 
-    # 格式化消息数据
+    # 格式化消息数据，转义防止XSS
     message_list = []
     for msg in messages:
         sender = db.session.get(User, msg.sender_id)
         receiver = db.session.get(User, msg.receiver_id)
         message_list.append({
             'id': msg.id,
-            'sender': sender.username,
-            'receiver': receiver.username,
-            'content': msg.content,
-            'file_type': msg.file_type,
-            'file_path': msg.file_path,
+            'sender': str(escape(sender.username)),
+            'receiver': str(escape(receiver.username)),
+            'content': str(escape(msg.content)) if msg.content else None,
+            'file_type': str(escape(msg.file_type)) if msg.file_type else None,
+            'file_path': str(escape(msg.file_path)) if msg.file_path else None,
             'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M:%S')
         })
 
@@ -749,16 +826,16 @@ def view_activities():
         .all()
     )
 
-    # ===== 格式化日志数据 =====
+    # ===== 格式化日志数据，转义防止XSS=====
     activity_list = []
     for activity in activities:
         user = db.session.get(User, activity.user_id)
         activity_list.append({
             'id': activity.id,
-            'username': user.username if user else '未知用户',
-            'ip_address': activity.ip_address,
-            'action_type': activity.action_type,
-            'action_detail': activity.action_detail,
+            'username': str(escape(user.username)) if user else '未知用户',
+            'ip_address': str(escape(activity.ip_address)) if activity.ip_address else None,
+            'action_type': str(escape(activity.action_type)) if activity.action_type else None,
+            'action_detail': str(escape(activity.action_detail)) if activity.action_detail else None,
             'created_at': activity.created_at.strftime('%Y-%m-%d %H:%M:%S')
         })
 
@@ -801,29 +878,53 @@ def view_activities():
 def reorder_activity_ids():
     """
     重新排序日志ID，从1开始连续编号
+    使用更简单可靠的方法：直接更新ID而不是删除再插入
     """
     try:
-        # 获取所有日志，按ID升序排列
-        activities = UserActivity.query.order_by(UserActivity.id).all()
-
-        # 重新分配ID
-        for i, activity in enumerate(activities, 1):
-            activity.id = i
-
-        # 提交更改
-        db.session.commit()
-
-        # 重置自增计数器
-        # 使用原生SQL重置自增计数器
         from sqlalchemy import text
-        db.session.execute(text("ALTER TABLE user_activities AUTO_INCREMENT = " + str(len(activities) + 1)))
+        
+        # 步骤1: 创建临时表存储排序后的新ID映射
+        db.session.execute(text("""
+            CREATE TEMPORARY TABLE temp_id_map AS
+            SELECT id AS old_id, @row := @row + 1 AS new_id
+            FROM user_activities, (SELECT @row := 0) AS init
+            ORDER BY created_at ASC
+        """))
+        
+        # 步骤2: 更新主表中的ID（使用JOIN方式更新）
+        db.session.execute(text("""
+            UPDATE user_activities 
+            JOIN temp_id_map ON user_activities.id = temp_id_map.old_id
+            SET user_activities.id = temp_id_map.new_id
+        """))
+        
+        # 步骤3: 重置自增计数器
+        db.session.execute(text("ALTER TABLE user_activities AUTO_INCREMENT = 1"))
+        
+        # 步骤4: 删除临时表
+        db.session.execute(text("DROP TEMPORARY TABLE IF EXISTS temp_id_map"))
+        
         db.session.commit()
-
+        
         return True
     except Exception as e:
-        print(f"重新排序日志ID失败: {e}")
         db.session.rollback()
         return False
+
+
+# 手动重新排序日志ID的路由（用于测试）
+@app.route('/admin/reorder_activities', methods=['POST'])
+@csrf.exempt
+@login_required
+@admin_required
+def admin_reorder_activities():
+    """
+    手动触发日志ID重新排序
+    """
+    if reorder_activity_ids():
+        return jsonify({'code': 1, 'msg': '日志ID重新排序完成'})
+    else:
+        return jsonify({'code': 0, 'msg': '日志ID重新排序失败'})
 
 
 def reorder_user_ids():
@@ -844,7 +945,8 @@ def reorder_user_ids():
         # 重置自增计数器
         # 使用原生SQL重置自增计数器
         from sqlalchemy import text
-        db.session.execute(text("ALTER TABLE users AUTO_INCREMENT = " + str(len(users) + 1)))
+        new_auto_inc = len(users) + 1
+        db.session.execute(text(f"ALTER TABLE users AUTO_INCREMENT = {new_auto_inc}"))
         db.session.commit()
 
         return True
@@ -856,6 +958,7 @@ def reorder_user_ids():
 
 # 单个删除日志
 @app.route('/admin/delete_activity/<int:activity_id>', methods=['POST'])
+@csrf.exempt
 @login_required
 @admin_required
 def delete_activity(activity_id):
@@ -876,13 +979,13 @@ def delete_activity(activity_id):
 
         return jsonify({'code': 1, 'msg': '删除成功'})
     except Exception as e:
-        print(f"删除日志失败: {e}")
         db.session.rollback()
         return jsonify({'code': 0, 'msg': '删除失败'})
 
 
 # 批量删除日志
 @app.route('/admin/delete_activities', methods=['POST'])
+@csrf.exempt
 @login_required
 @admin_required
 def delete_activities():
@@ -936,6 +1039,7 @@ def delete_activities():
 
 # 清空所有日志
 @app.route('/admin/clear_activities', methods=['POST'])
+@csrf.exempt
 @login_required
 @admin_required
 def clear_activities():
@@ -961,6 +1065,197 @@ def clear_activities():
         db.session.rollback()
         return jsonify({'code': 0, 'msg': '清空失败'})
 
+# 导出用户行为日志
+@app.route('/admin/export_activities')
+@login_required
+@admin_required
+def export_activities():
+    """
+    导出所有用户行为日志为Excel文件
+    """
+    try:
+        # 创建工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "用户行为日志"
+
+        # 设置表头
+        ws.append(['ID', '用户名', 'IP地址', '行为类型', '行为详情', '创建时间'])
+
+        # 查询所有用户行为日志
+        activities = UserActivity.query.order_by(UserActivity.id).all()
+
+        # 填充数据
+        for activity in activities:
+            user = db.session.get(User, activity.user_id)
+            username = user.username if user else '未知用户'
+            ws.append([
+                activity.id,
+                username,
+                activity.ip_address,
+                activity.action_type,
+                activity.action_detail or '',
+                activity.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            ])
+
+        # 生成临时文件
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+            tmp_path = tmp.name
+        wb.save(tmp_path)
+
+        # 记录管理员操作
+        log_user_activity(current_user.id, 'admin_action', '导出用户行为日志')
+
+        # 发送文件
+        return send_file(
+            tmp_path,
+            as_attachment=True,
+            download_name='CouldTalk行为日志.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        print(f"导出用户行为日志失败: {e}")
+        flash('导出失败，请稍后重试', 'error')
+        return redirect(url_for('view_activities'))
+
+# 导出聊天记录
+@app.route('/admin/export_messages')
+@login_required
+@admin_required
+def export_messages():
+    """
+    导出所有用户的聊天记录为Excel文件
+    """
+    try:
+        # 创建工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "聊天记录"
+
+        # 设置表头
+        ws.append(['ID', '发送者', '接收者', '内容', '文件类型', '文件路径', '时间'])
+
+        # 查询所有聊天记录
+        messages = Message.query.order_by(Message.id).all()
+
+        # 填充数据
+        for msg in messages:
+            sender = db.session.get(User, msg.sender_id)
+            receiver = db.session.get(User, msg.receiver_id)
+            sender_name = sender.username if sender else '未知用户'
+            receiver_name = receiver.username if receiver else '未知用户'
+            ws.append([
+                msg.id,
+                sender_name,
+                receiver_name,
+                msg.content or '',
+                msg.file_type or '',
+                msg.file_path or '',
+                msg.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            ])
+
+        # 生成临时文件
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+            tmp_path = tmp.name
+        wb.save(tmp_path)
+
+        # 记录管理员操作
+        log_user_activity(current_user.id, 'admin_action', '导出所有用户聊天记录')
+
+        # 发送文件
+        return send_file(
+            tmp_path,
+            as_attachment=True,
+            download_name='CouldTalk所有用户聊天记录.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        print(f"导出聊天记录失败: {e}")
+        flash('导出失败，请稍后重试', 'error')
+        return redirect(url_for('admin_panel'))
+
+# 导出指定用户的聊天记录
+@app.route('/admin/export_user_messages/<int:user_id>')
+@login_required
+@admin_required
+def export_user_messages(user_id):
+    """
+    导出指定用户的聊天记录为Excel文件
+    """
+    try:
+        # 获取用户信息
+        user = User.query.get_or_404(user_id)
+
+        # 创建工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f"{user.username}的聊天记录"
+
+        # 设置表头
+        ws.append(['ID', '发送者', '接收者', '内容', '文件类型', '文件路径', '时间'])
+
+        # 查询该用户的聊天记录
+        messages = Message.query.filter(
+            (Message.sender_id == user_id) | (Message.receiver_id == user_id)
+        ).order_by(Message.id).all()
+
+        # 填充数据
+        for msg in messages:
+            sender = db.session.get(User, msg.sender_id)
+            receiver = db.session.get(User, msg.receiver_id)
+            sender_name = sender.username if sender else '未知用户'
+            receiver_name = receiver.username if receiver else '未知用户'
+            ws.append([
+                msg.id,
+                sender_name,
+                receiver_name,
+                msg.content or '',
+                msg.file_type or '',
+                msg.file_path or '',
+                msg.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            ])
+
+        # 生成临时文件
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+            tmp_path = tmp.name
+        wb.save(tmp_path)
+
+        # 记录管理员操作
+        log_user_activity(current_user.id, 'admin_action', f'导出用户 {user.username} 的聊天记录')
+
+        # 发送文件
+        return send_file(
+            tmp_path,
+            as_attachment=True,
+            download_name=f'CouldTalk_{user.username}聊天记录.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        print(f"导出用户聊天记录失败: {e}")
+        flash('导出失败，请稍后重试', 'error')
+        return redirect(url_for('view_all_messages', user_id=user_id))
+
+# 导出页面
+@app.route('/admin/export')
+@login_required
+@admin_required
+def export_page():
+    """
+    导出功能页面
+    """
+    # 记录管理后台访问行为
+    log_user_activity(current_user.id, 'admin_access', '访问导出页面')
+
+    # 获取所有用户
+    users = User.query.all()
+
+    return render_template('admin_export.html',
+                           current_user=current_user,
+                           users=users)
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -983,19 +1278,19 @@ def login():
 
         # 检查临时锁定
         if is_user_locked(user):
-            lock_end_time = user.lock_time + timedelta(minutes=1)
+            lock_end_time = user.lock_time + timedelta(minutes=ACCOUNT_LOCKOUT_MINUTES)
             remain_time = int((lock_end_time - datetime.now()).total_seconds())
-            return render_template('login.html', error='账号已锁定，请等待解锁', show_verify=False, lock_end_time=lock_end_time.timestamp())
+            return render_template('login.html', error=f'账号已锁定，请等待{ACCOUNT_LOCKOUT_MINUTES}分钟', show_verify=False, lock_end_time=lock_end_time.timestamp(), locked_username=username)
 
         # 验证码验证逻辑
-        if user.login_attempts >= 3:
+        if user.login_attempts >= LOGIN_ATTEMPTS_BEFORE_CAPTCHA:
             if not verify_code_input or verify_code_input != user.verify_code:
                 user.login_attempts += 1
-                if user.login_attempts >= 5:
+                if user.login_attempts >= MAX_LOGIN_ATTEMPTS:
                     user.lock_time = datetime.now()
                     db.session.commit()
-                    lock_end_time = user.lock_time + timedelta(minutes=1)
-                    return render_template('login.html', error='验证码错误，账号已锁定1分钟', show_verify=False, lock_end_time=lock_end_time.timestamp())
+                    lock_end_time = user.lock_time + timedelta(minutes=ACCOUNT_LOCKOUT_MINUTES)
+                    return render_template('login.html', error=f'验证码错误，账号已锁定{ACCOUNT_LOCKOUT_MINUTES}分钟', show_verify=False, lock_end_time=lock_end_time.timestamp(), locked_username=username)
                 user.verify_code = generate_verify_code()
                 db.session.commit()
                 return render_template('login.html', error='验证码错误，请重新输入', verify_code=user.verify_code,
@@ -1027,10 +1322,11 @@ def login():
                 return redirect(url_for('index'))
             else:
                 user.login_attempts += 1
-                if user.login_attempts >= 5:
+                if user.login_attempts >= MAX_LOGIN_ATTEMPTS:
                     user.lock_time = datetime.now()
                     db.session.commit()
-                    return render_template('login.html', error='账户或密码错误，账号已锁定1分钟', show_verify=False)
+                    lock_end_time = user.lock_time + timedelta(minutes=ACCOUNT_LOCKOUT_MINUTES)
+                    return render_template('login.html', error=f'账户或密码错误，账号已锁定{ACCOUNT_LOCKOUT_MINUTES}分钟', show_verify=False, lock_end_time=lock_end_time.timestamp(), locked_username=username)
                 user.verify_code = generate_verify_code()
                 db.session.commit()
                 return render_template('login.html', error='账户或密码错误，请重新输入', verify_code=user.verify_code,
@@ -1063,12 +1359,12 @@ def login():
             else:
                 user.login_attempts += 1
                 db.session.commit()
-                if user.login_attempts >= 3:
+                if user.login_attempts >= LOGIN_ATTEMPTS_BEFORE_CAPTCHA:
                     user.verify_code = generate_verify_code()
                     db.session.commit()
-                    return render_template('login.html', error=f'账户或密码错误（{user.login_attempts}/5），请输入验证码',
+                    return render_template('login.html', error=f'账户或密码错误（{user.login_attempts}/{MAX_LOGIN_ATTEMPTS}），请输入验证码',
                                            verify_code=user.verify_code, show_verify=True)
-                return render_template('login.html', error=f'账户或密码错误（{user.login_attempts}/5）', show_verify=False)
+                return render_template('login.html', error=f'账户或密码错误（{user.login_attempts}/{MAX_LOGIN_ATTEMPTS}）', show_verify=False)
 
     return render_template('login.html', error='', show_verify=False)
 
@@ -1185,7 +1481,91 @@ def logout():
     return redirect(url_for('login'))
 
 
+@app.route('/api/login', methods=['POST'])
+@csrf.exempt  # 排除API路由的CSRF保护
+def api_login():
+    """
+    API登录接口，用于Apifox测试
+    接受JSON格式的请求，返回JSON格式的响应
+    """
+    try:
+        # 获取JSON数据
+        data = request.json
+        if not data:
+            return jsonify({'code': 400, 'msg': '请提供JSON格式的请求数据'})
+        
+        username = data.get('username')
+        password = data.get('password')
+        verify_code = data.get('verify_code', '')
+        
+        if not username or not password:
+            return jsonify({'code': 400, 'msg': '用户名和密码不能为空'})
+        
+        # 查询用户
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            return jsonify({'code': 401, 'msg': '用户名不存在'})
+        
+        # 检查是否封号
+        if user.is_banned:
+            return jsonify({'code': 403, 'msg': '该账号已被封号，无法登录'})
+        
+        # 检查临时锁定
+        if is_user_locked(user):
+            return jsonify({'code': 423, 'msg': '账号已锁定，请等待解锁'})
+        
+        # 验证码验证逻辑
+        if user.login_attempts >= LOGIN_ATTEMPTS_BEFORE_CAPTCHA:
+            if not verify_code or verify_code != user.verify_code:
+                user.login_attempts += 1
+                if user.login_attempts >= MAX_LOGIN_ATTEMPTS:
+                    user.lock_time = datetime.now()
+                    db.session.commit()
+                    return jsonify({'code': 423, 'msg': f'验证码错误，账号已锁定{ACCOUNT_LOCKOUT_MINUTES}分钟'})
+                user.verify_code = generate_verify_code()
+                db.session.commit()
+                return jsonify({'code': 401, 'msg': '验证码错误，请重新输入', 'verify_code': user.verify_code, 'show_verify': True})
+        
+        # 验证密码
+        if not check_password_hash(user.password, password):
+            user.login_attempts += 1
+            if user.login_attempts >= MAX_LOGIN_ATTEMPTS:
+                user.lock_time = datetime.now()
+                db.session.commit()
+                return jsonify({'code': 423, 'msg': f'账户或密码错误，账号已锁定{ACCOUNT_LOCKOUT_MINUTES}分钟'})
+            if user.login_attempts >= LOGIN_ATTEMPTS_BEFORE_CAPTCHA:
+                user.verify_code = generate_verify_code()
+                db.session.commit()
+                return jsonify({'code': 401, 'msg': f'账户或密码错误（{user.login_attempts}/{MAX_LOGIN_ATTEMPTS}），请输入验证码', 'verify_code': user.verify_code, 'show_verify': True})
+            db.session.commit()
+            return jsonify({'code': 401, 'msg': f'账户或密码错误（{user.login_attempts}/{MAX_LOGIN_ATTEMPTS}）'})
+        
+        # 登录成功
+        new_session_id = generate_session_id()
+        # 更新用户记录
+        user.login_attempts = 0
+        user.verify_code = None
+        user.online = True
+        user.login_device = get_login_device()
+        user.last_login_time = datetime.now()
+        user.session_created_at = datetime.now()
+        user.current_session_id = new_session_id
+        db.session.commit()
+        
+        # 记录登录成功行为
+        log_user_activity(user.id, 'login', f'登录成功，设备: {user.login_device}')
+        
+        # 登录用户
+        login_user(user, remember=False)
+        session[SESSION_ID_KEY] = new_session_id
+        
+        return jsonify({'code': 200, 'msg': '登录成功', 'user_id': user.id, 'username': user.username, 'role': user.role})
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': f'登录失败：{str(e)}'})
+
+
 @app.route('/friend/request/<int:receiver_id>', methods=['POST'])
+@csrf.exempt
 @login_required
 def send_friend_request(receiver_id):
     """
@@ -1252,6 +1632,7 @@ def send_friend_request(receiver_id):
 
 
 @app.route('/friend/request/<int:request_id>/<action>', methods=['POST'])
+@csrf.exempt
 @login_required
 def handle_friend_request(request_id, action):
     """
@@ -1299,6 +1680,7 @@ def handle_friend_request(request_id, action):
 
 
 @app.route('/friend/remove/<int:friend_id>', methods=['POST'])
+@csrf.exempt
 @login_required
 def remove_friend(friend_id):
     """
@@ -1376,7 +1758,7 @@ def search_user():
             has_pending = has_pending_request(current_user.id, user.id)
             non_friends.append({
                 'id': user.id,
-                'username': user.username,
+                'username': str(escape(user.username)),
                 'online': user.online,
                 'has_pending_request': has_pending
             })
@@ -1421,11 +1803,11 @@ def search_all_messages():
             'id': msg.id,
             'sender_id': msg.sender_id,
             'receiver_id': msg.receiver_id,
-            'sender_name': sender.username,
-            'receiver_name': receiver.username,
-            'content': msg.content,
-            'file_type': msg.file_type,
-            'file_path': msg.file_path,
+            'sender_name': str(escape(sender.username)),
+            'receiver_name': str(escape(receiver.username)),
+            'content': str(escape(msg.content)) if msg.content else None,
+            'file_type': str(escape(msg.file_type)) if msg.file_type else None,
+            'file_path': str(escape(msg.file_path)) if msg.file_path else None,
             'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M:%S')
         })
 
@@ -1436,8 +1818,54 @@ def search_all_messages():
     })
 
 
+# -------------- 安全文件验证函数 --------------
+def validate_image_file(file_stream):
+    """验证图片文件内容（检查魔数）"""
+    try:
+        file_stream.seek(0)
+        header = file_stream.read(32)
+        file_stream.seek(0)
+        
+        # 检查常见图片格式的魔数
+        if header.startswith(b'\xff\xd8\xff'):  # JPEG
+            return 'jpeg'
+        elif header.startswith(b'\x89PNG\r\n\x1a\n'):  # PNG
+            return 'png'
+        elif header.startswith(b'GIF87a') or header.startswith(b'GIF89a'):  # GIF
+            return 'gif'
+        elif header.startswith(b'BM'):  # BMP
+            return 'bmp'
+        elif header.startswith(b'RIFF') and header[8:12] == b'WEBP':  # WebP
+            return 'webp'
+        return None
+    except Exception:
+        return None
+
+def validate_audio_file(file_stream):
+    """验证音频文件内容（简化检查）"""
+    try:
+        file_stream.seek(0)
+        header = file_stream.read(16)
+        file_stream.seek(0)
+        
+        # 检查常见音频格式
+        if header.startswith(b'ID3') or header.startswith(b'\xff\xfb'):  # MP3
+            return 'mp3'
+        elif header.startswith(b'RIFF') and header[8:12] == b'WAVE':  # WAV
+            return 'wav'
+        elif header.startswith(b'OggS'):  # OGG
+            return 'ogg'
+        elif header.startswith(b'\xff\xff') or header.startswith(b'\xff\xfa'):  # AAC/MP4
+            return 'm4a'
+        elif header.startswith(b'fLaC'):  # FLAC
+            return 'flac'
+        return None
+    except Exception:
+        return None
+
 # -------------- 文件上传接口 --------------
 @app.route('/upload_file', methods=['POST'])
+@csrf.exempt
 @login_required
 def upload_file():
     # 禁言/封号用户禁止上传文件
@@ -1451,28 +1879,60 @@ def upload_file():
     if file.filename == '':
         return jsonify({'code': 0, 'msg': '文件名为空'})
 
+    # 安全获取文件扩展名
+    if '.' not in file.filename:
+        return jsonify({'code': 0, 'msg': '无效的文件格式'})
+    
     file_ext = file.filename.rsplit('.', 1)[1].lower()
-    file_size = len(file.read())
+    
+    # 获取文件大小
+    file.seek(0, 2)
+    file_size = file.tell()
     file.seek(0)
 
     file_type = None
     max_size = 0
+    valid_ext = False
+    
+    # 验证图片文件
     if allowed_file(file.filename, ALLOWED_IMAGE_EXTENSIONS):
         file_type = 'image'
         max_size = MAX_IMAGE_SIZE
+        # 验证文件内容
+        if not validate_image_file(file):
+            return jsonify({'code': 0, 'msg': '图片文件内容验证失败，可能是恶意文件'})
+        valid_ext = True
+    # 验证音频文件
     elif allowed_file(file.filename, ALLOWED_AUDIO_EXTENSIONS):
         file_type = 'audio'
         max_size = MAX_AUDIO_SIZE
-    else:
+        # 验证文件内容
+        if not validate_audio_file(file):
+            return jsonify({'code': 0, 'msg': '音频文件内容验证失败，可能是恶意文件'})
+        valid_ext = True
+    
+    if not valid_ext:
         return jsonify({'code': 0,
                         'msg': f'不支持的文件格式，仅支持图片({",".join(ALLOWED_IMAGE_EXTENSIONS)})和音频({",".join(ALLOWED_AUDIO_EXTENSIONS)})'})
 
     if file_size > max_size:
         return jsonify({'code': 0, 'msg': f'文件过大，{file_type}最大支持{max_size // 1024 // 1024}MB'})
 
+    # 安全生成文件名
     unique_filename = str(uuid.uuid4()) + '.' + file_ext
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+    
+    # 确保上传目录存在
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    
+    # 保存文件
     file.save(file_path)
+    
+    # 设置文件权限（只读）
+    try:
+        os.chmod(file_path, 0o644)
+    except Exception:
+        pass
 
     # 记录文件上传行为
     log_user_activity(current_user.id, 'upload_file', f'上传{file_type}文件: {unique_filename}')
@@ -1498,11 +1958,11 @@ def get_messages(receiver_id):
     message_list = []
     for msg in messages:
         message_list.append({
-            'sender': msg.sender.username,
+            'sender': str(escape(msg.sender.username)),
             'sender_id': msg.sender_id,
-            'content': msg.content,
-            'file_type': msg.file_type,
-            'file_path': msg.file_path,
+            'content': str(escape(msg.content)) if msg.content else None,
+            'file_type': str(escape(msg.file_type)) if msg.file_type else None,
+            'file_path': str(escape(msg.file_path)) if msg.file_path else None,
             'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M')
         })
     return jsonify(message_list)
@@ -1528,17 +1988,18 @@ def search_messages(receiver_id):
     message_list = []
     for msg in messages:
         message_list.append({
-            'sender': msg.sender.username,
+            'sender': str(escape(msg.sender.username)),
             'sender_id': msg.sender_id,
-            'content': msg.content,
-            'file_type': msg.file_type,
-            'file_path': msg.file_path,
+            'content': str(escape(msg.content)) if msg.content else None,
+            'file_type': str(escape(msg.file_type)) if msg.file_type else None,
+            'file_path': str(escape(msg.file_path)) if msg.file_path else None,
             'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M')
         })
     return jsonify({'code': 1, 'msg': f'找到{len(message_list)}条结果', 'data': message_list})
 
 
 @app.route('/clear_messages/<int:receiver_id>', methods=['POST'])
+@csrf.exempt
 @login_required
 def clear_messages(receiver_id):
     # 检查是否是好友
@@ -1591,14 +2052,29 @@ def handle_send_text_message(data):
         emit('message_error', {'msg': '您已被禁言/封号，无法发送消息'})
         return
 
-    receiver_id = data['receiver_id']
+    # 安全验证输入数据
+    if 'receiver_id' not in data or 'content' not in data:
+        emit('message_error', {'msg': '无效的消息格式'})
+        return
+    
+    try:
+        receiver_id = int(data['receiver_id'])
+    except (ValueError, TypeError):
+        emit('message_error', {'msg': '无效的接收者ID'})
+        return
+
     # 检查是否是好友
     if not are_friends(current_user.id, receiver_id):
         emit('message_error', {'msg': '只有好友之间才能发送消息'})
         return
 
-    content = data['content'].strip()
+    content = str(data['content']).strip()
     if not content:
+        return
+    
+    # 限制消息长度
+    if len(content) > 5000:
+        emit('message_error', {'msg': '消息过长'})
         return
 
     # 再次检查用户状态，确保在发送过程中没有被禁言或封号
@@ -1621,10 +2097,11 @@ def handle_send_text_message(data):
     receiver = db.session.get(User, receiver_id)
     log_user_activity(current_user.id, 'send_message', f'发送文本消息给 {receiver.username}')
 
+    # 转义输出防止XSS
     message_data = {
-        'sender': current_user.username,
+        'sender': str(escape(current_user.username)),
         'sender_id': current_user.id,
-        'content': content,
+        'content': str(escape(content)),
         'file_type': None,
         'file_path': None,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -1646,14 +2123,34 @@ def handle_send_file_message(data):
         emit('message_error', {'msg': '您已被禁言/封号，无法发送文件'})
         return
 
-    receiver_id = data['receiver_id']
+    # 安全验证输入数据
+    if 'receiver_id' not in data or 'file_type' not in data or 'file_path' not in data:
+        emit('message_error', {'msg': '无效的消息格式'})
+        return
+    
+    try:
+        receiver_id = int(data['receiver_id'])
+    except (ValueError, TypeError):
+        emit('message_error', {'msg': '无效的接收者ID'})
+        return
+
     # 检查是否是好友
     if not are_friends(current_user.id, receiver_id):
         emit('message_error', {'msg': '只有好友之间才能发送文件'})
         return
 
-    file_type = data['file_type']
-    file_path = data['file_path']
+    file_type = str(data['file_type'])
+    file_path = str(data['file_path'])
+    
+    # 验证文件类型
+    if file_type not in ['image', 'audio']:
+        emit('message_error', {'msg': '不支持的文件类型'})
+        return
+    
+    # 验证文件路径格式（防止路径遍历）
+    if '..' in file_path or '/' in file_path or '\\' in file_path:
+        emit('message_error', {'msg': '无效的文件路径'})
+        return
 
     # 再次检查用户状态，确保在发送过程中没有被禁言或封号
     user = db.session.get(User, current_user.id)
@@ -1675,12 +2172,13 @@ def handle_send_file_message(data):
     receiver = db.session.get(User, receiver_id)
     log_user_activity(current_user.id, 'send_file', f'发送{file_type}文件给 {receiver.username}')
 
+    # 转义输出防止XSS
     message_data = {
-        'sender': current_user.username,
+        'sender': str(escape(current_user.username)),
         'sender_id': current_user.id,
         'content': None,
-        'file_type': file_type,
-        'file_path': file_path,
+        'file_type': str(escape(file_type)),
+        'file_path': str(escape(file_path)),
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M')
     }
     emit('receive_message', message_data, room=str(receiver_id))
@@ -1704,6 +2202,7 @@ with app.app_context():
 
 # -------------- 修改用户信息接口 --------------
 @app.route('/update_username', methods=['POST'])
+@csrf.exempt
 @login_required
 def update_username():
     """
@@ -1729,6 +2228,7 @@ def update_username():
     return jsonify({'code': 1, 'msg': '用户名修改成功'})
 
 @app.route('/update_avatar', methods=['POST'])
+@csrf.exempt
 @login_required
 def update_avatar():
     """
@@ -1744,7 +2244,7 @@ def update_avatar():
 
     # 检查文件类型
     if not allowed_file(file.filename, ALLOWED_IMAGE_EXTENSIONS):
-        return jsonify({'code': 0, 'msg': f'不支持的文件格式，仅支持图片({",".join(ALLOWED_IMAGE_EXTENSIONS)})'})
+        return jsonify({'code': 0, 'msg': f'不支持的文件格式，仅支持图片({"|".join(ALLOWED_IMAGE_EXTENSIONS)})'})
 
     # 检查文件大小
     file_size = len(file.read())
@@ -1764,7 +2264,43 @@ def update_avatar():
     # 记录操作
     log_user_activity(current_user.id, 'update_avatar', f'更新头像: {unique_filename}')
 
-    return jsonify({'code': 1, 'msg': '头像更新成功'})
+    return jsonify({'code': 1, 'msg': '头像更新成功', 'data': {'filename': unique_filename}})
+
+
+@app.route('/change_password', methods=['POST'])
+@csrf.exempt
+@login_required
+def change_password():
+    """
+    用户修改密码
+    :return: JSON响应
+    """
+    old_password = request.form.get('old_password')
+    new_password = request.form.get('new_password')
+
+    # 验证输入
+    if not old_password:
+        return jsonify({'code': 0, 'msg': '请输入原密码'})
+    if not new_password:
+        return jsonify({'code': 0, 'msg': '请输入新密码'})
+
+    # 验证原密码
+    if not check_password_hash(current_user.password, old_password):
+        return jsonify({'code': 0, 'msg': '原密码错误'})
+
+    # 验证新密码格式
+    if not is_valid_password(new_password):
+        return jsonify({'code': 0, 'msg': PASSWORD_ERROR_MSG})
+
+    # 更新密码
+    hashed_pwd = generate_password_hash(new_password, method='pbkdf2:sha256')
+    current_user.password = hashed_pwd
+    db.session.commit()
+
+    # 记录操作
+    log_user_activity(current_user.id, 'change_password', '修改密码')
+
+    return jsonify({'code': 1, 'msg': '密码修改成功'})
 
 
 # -------------- 运行应用 --------------

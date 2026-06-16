@@ -11,11 +11,10 @@
             box-sizing: border-box;
         }
         body {
-            background: #f5f5f5;
+            background: #f0f0f0;
             font-family: "Microsoft YaHei", sans-serif;
             padding: 20px;
-			background: url("/static/images/昔涟.jpg") no-repeat center top fixed;
-			background-size: cover;
+            padding-bottom: 80px;
 			min-height: 100vh; 
 			margin: 0;
         }
@@ -88,7 +87,10 @@
 <body>
     <div class="header">
         <h1>聊天记录 - {{ target_user.username }}</h1>
-        <a href="/admin/panel" class="back-link">返回管理面板</a>
+        <div style="display: flex; gap: 10px;">
+            <a href="/admin/export_user_messages/{{ target_user.id }}" class="back-link" style="background: #1677ff; color: white; border-color: #1677ff;">导出聊天记录</a>
+            <a href="/admin/panel" class="back-link">返回管理面板</a>
+        </div>
     </div>
 
     <div class="message-box">
@@ -122,6 +124,17 @@
         {% else %}
             <div class="empty-tip">该用户暂无聊天记录</div>
         {% endif %}
+    </div>
+
+    <div style="position: fixed; bottom: 0px; left: 0; right: 0; text-align: center; font-size: 12px; z-index: 999; background: #fff; padding: 8px 12px; border-radius: 8px; width: fit-content; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+        <a href="https://beian.miit.gov.cn/" target="_blank" style="color: #1677ff; text-decoration: none;">渝ICP备2026007384号-1</a>
+        <span style="margin-left: 10px;">
+            <img src="{{ url_for('static', filename='images/备案图标.png') }}" style="vertical-align: middle; width: 16px; height: 16px; margin-right: 5px;" alt="备案图标">
+            <a href="https://beian.mps.gov.cn/#/query/webSearch?code=50022502000890" target="_blank" style="color: #1677ff; text-decoration: none;">渝公网安备50022502000890号</a>
+        </span>
+        <span style="margin-left: 10px; color: #666;">
+    © <script>document.write(new Date().getFullYear())</script> LLH All Rights Reserved.
+</span>
     </div>
 </body>
 </html>

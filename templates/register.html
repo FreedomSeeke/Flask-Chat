@@ -50,10 +50,11 @@
             z-index: 1;
             width: 350px;
             padding: 30px;
-            background: rgba(255, 255, 255, 0.2); /* 半透明 */
+            background: rgba(255, 255, 255, 0.2);
             border-radius: 10px;
             box-shadow: 0 0 20px rgba(0,0,0,0.3);
             text-align: center;
+            margin-bottom: 80px;
         }
 
         .logo-img {
@@ -165,6 +166,7 @@
         {% endif %}
 
         <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-item">
                 <input type="text" name="username" placeholder="用户名" value="{{ username }}">
             </div>
@@ -232,4 +234,15 @@
     });
     {% endif %}
 </script>
+
+<div style="position: fixed; bottom: 0px; left: 0; right: 0; text-align: center; font-size: 12px; z-index: 999; background: #fff; padding: 8px 12px; border-radius: 8px; width: fit-content; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+    <a href="https://beian.miit.gov.cn/" target="_blank" style="color: #1677ff; text-decoration: none;">渝ICP备2026007384号-1</a>
+    <span style="margin-left: 10px;">
+        <img src="{{ url_for('static', filename='images/备案图标.png') }}" style="vertical-align: middle; width: 16px; height: 16px; margin-right: 5px;" alt="备案图标">
+        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=50022502000890" target="_blank" style="color: #1677ff; text-decoration: none;">渝公网安备50022502000890号</a>
+    </span>
+    <span style="margin-left: 10px; color: #666;">
+    © <script>document.write(new Date().getFullYear())</script> LLH All Rights Reserved.
+</span>
+</div>
 </html>

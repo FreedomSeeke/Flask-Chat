@@ -16,17 +16,16 @@
         }
         body {
             height: 100vh;
-        
+            
             font-family: "Microsoft YaHei", sans-serif;
             display: flex;
             flex-direction: column;
-			background: url("/static/images/昔涟.jpg") no-repeat center top fixed;
-			background-size: cover;
+			background: #f0f0f0;
 			margin: 0;
         }
         /* 顶部导航栏 */
         .top-nav {
-            background: rgba(247, 247, 247, 0.65);
+            background: #f7f7f7;
             padding: 10px 15px;
             border-bottom: 1px solid #e0e0e0;
             display: flex;
@@ -54,7 +53,7 @@
         }
         /* 搜索框 */
         .search-bar {
-            background: rgba(247, 247, 247, 0.65);
+            background: #f7f7f7;
             padding: 10px 15px;
             margin-top: 45px;
             position: fixed;
@@ -86,11 +85,11 @@
             flex: 1;
             overflow-y: auto;
             margin-top: 143px;
-            margin-bottom: 60px;
+            margin-bottom: 120px;
         }
         .chat-item {
             padding: 15px;
-            background: rgba(255, 255, 255, 0.75);
+            background: #ffffff;
             border-bottom: 1px solid #f0f0f0;
             display: flex;
             align-items: center;
@@ -156,17 +155,17 @@
         }
         /* 底部导航栏 */
         .bottom-nav {
-            background: rgba(255, 255, 255, 0.65);
+            background: #ffffff;
             border-top: 1px solid #e0e0e0;
             display: flex;
             justify-content: space-around;
             align-items: center;
             padding: 10px 0;
             position: fixed;
-            bottom: 0;
+            bottom: 50px;
             left: 0;
             right: 0;
-            z-index: 1000;
+            z-index: 998;
         }
         .nav-item {
             display: flex;
@@ -481,8 +480,8 @@
         <div class="top-nav">
             <h1>我</h1>
         </div>
-        <div class="profile-content" style="flex: 1; padding: 20px; margin-top: 50px; margin-bottom: 60px;">
-            <div style="background: rgba(255, 255, 255, 0.7); border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
+        <div class="profile-content" style="flex: 1; padding: 20px; margin-top: 45px; margin-bottom: 60px;">
+            <div style="background: #ffffff; border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
                 <div style="padding: 20px; display: flex; align-items: center;">
                     <div style="width: 80px; height: 80px; border-radius: 50%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 32px; color: #999; margin-right: 15px; position: relative; overflow: hidden;">
                         {% if current_user.avatar %}
@@ -503,13 +502,13 @@
                     </div>
                 </div>
             </div>
-            <div style="background: rgba(255, 255, 255, 0.7); border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
+            <div style="background: #ffffff; border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
                 <div id="change-password-btn" style="display: flex; justify-content: space-between; align-items: center; text-decoration: none; padding: 15px; cursor: pointer;">
                     <div style="font-size: 16px; color: #333;">修改密码</div>
                     <i class="fas fa-chevron-right" style="color: #999;"></i>
                 </div>
             </div>
-            <div style="background: rgba(255, 255, 255, 0.7); border-radius: 10px; overflow: hidden;">
+            <div style="background: #ffffff; border-radius: 10px; overflow: hidden;">
                 <a href="/logout" style="display: flex; justify-content: space-between; align-items: center; text-decoration: none; padding: 15px;">
                     <div style="font-size: 16px; color: #ff3b30;">退出登录</div>
                     <i class="fas fa-chevron-right" style="color: #999;"></i>
@@ -532,6 +531,7 @@
                         <label style="display: block; margin-bottom: 5px; font-size: 14px;">确认新密码</label>
                         <input type="password" id="confirm-password" style="width: 100%; padding: 10px; border: 1px solid #e0e0e0; border-radius: 5px; outline: none;">
                     </div>
+                    <div style="font-size: 12px; color: #999; margin-bottom: 15px;">密码要求：至少8位，包含大小写字母、数字和特殊字符(@$!%*?&#)</div>
                     <div style="display: flex; justify-content: space-between;">
                         <button id="cancel-change-password" style="padding: 10px 20px; background: #f0f0f0; color: #333; border: none; border-radius: 5px; cursor: pointer;">取消</button>
                         <button id="confirm-change-password" style="padding: 10px 20px; background: #07C160; color: white; border: none; border-radius: 5px; cursor: pointer;">确认</button>
@@ -1057,7 +1057,7 @@
                         <div class="message-item ${isSelf ? 'self' : 'other'}" data-message-id="${msg.id || Math.random().toString(36).substr(2, 9)}">
                             ${!isSelf ? (msg.avatar ? `<div class="message-avatar" style="margin-right: 10px; width: 36px; height: 36px; border-radius: 50%; overflow: hidden;"><img src="${msg.avatar}" style="width: 100%; height: 100%; object-fit: cover;"></div>` : '') : ''}
                             <div class="message-content">
-                                <audio controls src="${msg.file_path}">
+                                <audio class="chat-audio" controls src="${msg.file_path}">
                                     您的浏览器不支持音频播放
                                  </audio>
                             </div>
@@ -1297,8 +1297,13 @@
                     success: function(res) {
                         if (res.code === 1) {
                             alert(res.msg);
-                            // 刷新页面以更新头像
-                            location.reload();
+                            // 直接更新头像显示，不刷新页面
+                            const avatarElement = $('#avatar-input').parent().find('img');
+                            if (avatarElement.length > 0) {
+                                // 给图片URL添加时间戳，避免缓存
+                                const newAvatarUrl = '/static/uploads/' + res.data.filename + '?t=' + new Date().getTime();
+                                avatarElement.attr('src', newAvatarUrl);
+                            }
                         } else {
                             alert(res.msg);
                         }
@@ -1393,6 +1398,16 @@
             bindChatSearchClick();
             bindChatMenuClick();
             bindChangePasswordEvents();
+            document.addEventListener('play', function(e) {
+                if (e.target.classList && e.target.classList.contains('chat-audio')) {
+                    document.querySelectorAll('.chat-audio').forEach(function(audio) {
+                        if (audio !== e.target) {
+                            audio.pause();
+                            audio.currentTime = 0;
+                        }
+                    });
+                }
+            }, true);
         });
 
         // SocketIO连接成功
@@ -1408,5 +1423,16 @@
             }
         });
     </script>
+
+    <div style="position: fixed; bottom: 0px; left: 0; right: 0; text-align: center; font-size: 12px; z-index: 999; background: #fff; padding: 8px 12px; border-radius: 8px; width: fit-content; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+        <a href="https://beian.miit.gov.cn/" target="_blank" style="color: #1677ff; text-decoration: none;">渝ICP备2026007384号-1</a>
+        <span style="margin-left: 10px;">
+            <img src="{{ url_for('static', filename='images/备案图标.png') }}" style="vertical-align: middle; width: 16px; height: 16px; margin-right: 5px;" alt="备案图标">
+            <a href="https://beian.mps.gov.cn/#/query/webSearch?code=50022502000890" target="_blank" style="color: #1677ff; text-decoration: none;">渝公网安备50022502000890号</a>
+        </span>
+        <span style="margin-left: 10px; color: #666;">
+    © <script>document.write(new Date().getFullYear())</script> LLH All Rights Reserved.
+</span>
+    </div>
 </body>
 </html>
